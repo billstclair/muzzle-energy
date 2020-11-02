@@ -10,7 +10,7 @@
 ----------------------------------------------------------------------
 
 
-module Main exposing (main)
+port module Main exposing (main)
 
 import Browser exposing (Document, UrlRequest(..))
 import Browser.Dom as Dom exposing (Viewport)
@@ -72,6 +72,7 @@ import Html.Attributes
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
 import Json.Encode as JE exposing (Value)
+import PortFunnels
 import Set exposing (Set)
 import String.Extra as SE
 import Svg exposing (Svg, svg)
@@ -82,8 +83,20 @@ import Time exposing (Month, Posix, Zone)
 import Url exposing (Url)
 
 
+state =
+    PortFunnels.initialState "muzzle-energy"
+
+
+{-| This is used by links created by Util.toVirtualDom calls below.
+
+It forces them to open in a new tab/window.
+
+-}
+port openWindow : Value -> Cmd msg
+
+
 type alias Model =
-    { stuff : Int
+    { cmdPort : Value -> Cmd Msg
     }
 
 
@@ -112,19 +125,33 @@ main =
 
 init : Value -> Url -> Key -> ( Model, Cmd Msg )
 init value url key =
-    { stuff = 0
+    { cmdPort =
+        PortFunnels.getCmdPort (\v -> Noop) "foo" False
     }
         |> withNoCmd
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch []
+    Sub.batch [ PortFunnels.subscriptions (\v -> Noop) model ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    model |> withNoCmd
+    case msg of
+        Noop ->
+            model |> withNoCmd
+
+        OnUrlRequest urlRequest ->
+            case urlRequest of
+                Internal _ ->
+                    model |> withNoCmd
+
+                External url ->
+                    model |> withCmd (openWindow <| JE.string url)
+
+        OnUrlChange url ->
+            model |> withNoCmd
 
 
 view : Model -> Document Msg
@@ -134,6 +161,13 @@ view model =
         [ h2 [] [ text "Muzzle Energy" ]
         , p []
             [ text "A new, smarter, muzzle energy computer."
+            ]
+        , p []
+            [ a [ href "https://elm-lang.org" ]
+                [ text "Elm" ]
+            , text " "
+            , a [ href "https://github.com/billstclair/muzzle-energy/" ]
+                [ text "GitHub" ]
             ]
         ]
     }
