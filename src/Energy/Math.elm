@@ -10,7 +10,19 @@
 ----------------------------------------------------------------------
 
 
-module Energy.Math exposing (Energy, Measurements, computeEnergy)
+module Energy.Math exposing
+    ( Energy
+    , ImperialMeasurements
+    , Measurements
+    , computeEnergy
+    , constants
+    , diameterInGaugeToInches
+    , diameterInInchesToGauge
+    , grainsToOunces
+    , imperialToMeasurements
+    , measurementsToImperial
+    , ouncesToGrains
+    )
 
 
 type alias Measurements =
@@ -22,7 +34,7 @@ type alias Measurements =
     }
 
 
-type alias ImperialMeasureMents =
+type alias ImperialMeasurements =
     { grams : Float
     , metersPerSecond : Float
     , diameterInMm : Float
@@ -41,6 +53,29 @@ constants =
     , lbsPerSlug = 32.17405
     , grainsPerSlug = 7000.0 * 32.17405
     , gaugeTimesInchesCubed = 4.648224
+    , feetPerMeter = 3.281
+    , grainsPerGram = 15.429718
+    , cmPerInch = 2.54
+    }
+
+
+imperialToMeasurements : ImperialMeasurements -> Measurements
+imperialToMeasurements im =
+    { grains = constants.grainsPerGram * im.grams
+    , feetPerSecond = constants.feetPerMeter * im.metersPerSecond
+    , diameterInInches = im.diameterInMm / (10 * constants.cmPerInch)
+    , ounces = 0
+    , gauge = 0
+    }
+        |> grainsToOunces
+        |> diameterInInchesToGauge
+
+
+measurementsToImperial : Measurements -> ImperialMeasurements
+measurementsToImperial m =
+    { grams = m.grains / constants.grainsPerGram
+    , metersPerSecond = m.feetPerSecond / constants.feetPerMeter
+    , diameterInMm = m.diameterInInches * constants.cmPerInch * 10
     }
 
 
