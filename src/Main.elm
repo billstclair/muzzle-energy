@@ -35,11 +35,8 @@ import Html
         , select
         , span
         , table
-        , td
         , text
         , textarea
-        , th
-        , tr
         )
 import Html.Attributes
     exposing
@@ -110,6 +107,11 @@ type Msg
     = Noop
     | OnUrlRequest UrlRequest
     | OnUrlChange Url
+    | SetGrains String
+    | SetOunces String
+    | SetFeetPerSecond String
+    | SetInches String
+    | SetGauge String
 
 
 main =
@@ -143,15 +145,58 @@ update msg model =
             model |> withNoCmd
 
         OnUrlRequest urlRequest ->
-            case urlRequest of
-                Internal _ ->
-                    model |> withNoCmd
+            let
+                url =
+                    case urlRequest of
+                        Internal u ->
+                            Url.toString u
 
-                External url ->
-                    model |> withCmd (openWindow <| JE.string url)
+                        External u ->
+                            u
+            in
+            model |> withCmd (openWindow <| JE.string url)
 
         OnUrlChange url ->
             model |> withNoCmd
+
+        SetGrains s ->
+            model |> withNoCmd
+
+        SetOunces s ->
+            model |> withNoCmd
+
+        SetFeetPerSecond s ->
+            model |> withNoCmd
+
+        SetInches s ->
+            model |> withNoCmd
+
+        SetGauge s ->
+            model |> withNoCmd
+
+
+tr : List (Html Msg) -> Html Msg
+tr elements =
+    Html.tr [] elements
+
+
+td : List (Html Msg) -> Html Msg
+td elements =
+    Html.td [ style "padding" "2px" ] elements
+
+
+b : String -> Html Msg
+b s =
+    Html.b [] [ text s ]
+
+
+numberInput : (String -> Msg) -> Html Msg
+numberInput wrapper =
+    input
+        [ style "width" "5em"
+        , onInput wrapper
+        ]
+        []
 
 
 view : Model -> Document Msg
@@ -162,12 +207,47 @@ view model =
         , p []
             [ text "A new, smarter, muzzle energy computer."
             ]
+        , table []
+            [ tr
+                [ td [ b "Bullet Weight (grains): " ]
+                , td
+                    [ numberInput SetGrains ]
+                , td [ b "(ounces): " ]
+                , td
+                    [ numberInput SetOunces ]
+                ]
+            , tr
+                [ td [ b "Velocity (feet/second): " ]
+                , td
+                    [ numberInput SetFeetPerSecond ]
+                ]
+            , tr
+                [ td [ b "Bullet diameter (inches): " ]
+                , td
+                    [ numberInput SetInches ]
+                , td [ b "(gauge): " ]
+                , td
+                    [ numberInput SetGauge ]
+                ]
+            , tr [ td [ text "." ] ]
+            , tr
+                [ td [ b "Energy: " ]
+                , td []
+                ]
+            , tr
+                [ td [ b "Efficacy (energy x area): " ]
+                , td []
+                ]
+            ]
         , p []
             [ a [ href "https://elm-lang.org" ]
                 [ text "Elm" ]
             , text " "
             , a [ href "https://github.com/billstclair/muzzle-energy/" ]
                 [ text "GitHub" ]
+            , text " "
+            , a [ href "old/" ]
+                [ text "Old" ]
             ]
         ]
     }

@@ -1,0 +1,331 @@
+<html>
+<head>
+<title>Muzzle Energy Computer</title>
+<script>
+function calc() {
+  var grains_per_lb = 7000;
+  var lb_per_slug = 32.17405;
+  var grains_per_slug = grains_per_lb * lb_per_slug;
+  var pi = 3.141592654;
+  var velocity = new Number(document.mainform.velocity.value);
+  var weight = new Number(document.mainform.weight.value);
+  var diameter = new Number(document.mainform.diameter.value);
+  var energy = 0.5 * (weight / grains_per_slug) * velocity * velocity;
+  var r = diameter / 2;
+  var efficacy = energy * Math.PI * r * r;
+  var secdens = (weight / grains_per_lb) / (diameter * diameter);
+  var jem = energy * secdens;
+  document.mainform.energy.value = Math.round(energy);
+  document.mainform.joule.value = Math.round(1.36 * energy);
+  document.mainform.efficacy.value = Math.round(efficacy);
+  document.mainform.secdens.value = round(secdens, 3);
+  document.mainform.jem.value = Math.round(jem);
+}
+
+function wchg() {
+  grcalc();
+  ozcalc();
+  calc();
+}
+
+function grchg() {
+  document.mainform.weight.value = 
+    round(15.429718 * document.mainform.gr.value, 2);
+  ozcalc();
+  calc();
+}
+
+function grcalc() {
+  document.mainform.gr.value =
+    round(document.mainform.weight.value / 15.429718, 3);
+}
+
+function ozchg1() {
+  document.mainform.weight.value = 
+    round(6999 * document.mainform.oz.value / 16, 0);
+  grcalc();
+}
+
+function ozchg() {
+  ozchg1();
+  calc();
+}
+
+function ozcalc() {
+  document.mainform.oz.value =
+    round(16 * document.mainform.weight.value / 6999, 3);
+}
+
+function dchg() {
+  mmcalc();
+  ggcalc();
+  calc();
+}
+
+function mmchg() {
+  document.mainform.diameter.value =
+    round(document.mainform.mm.value / 25.4, 3);
+  ggcalc();
+  calc();
+}
+
+function vchg() {
+  mpscalc();
+  calc();
+}
+
+function mmcalc() {
+  document.mainform.mm.value =
+    round(document.mainform.diameter.value * 25.4, 3);
+}
+
+function ggchg1() {
+  document.mainform.diameter.value =
+    round(Math.pow(4.648224 / document.mainform.gauge.value, 0.3333333), 3);
+  mmcalc();
+}
+
+function ggchg() {
+  ggchg1();
+  calc();
+}
+
+function ggcalc() {
+  document.mainform.gauge.value =
+    round(4.648224 / Math.pow(document.mainform.diameter.value, 3), 3);
+}
+
+function mpscalc() {
+  document.mainform.mps.value =
+    round(0.3048 * document.mainform.velocity.value, 1)
+}
+
+function mpschg1() {
+  document.mainform.velocity.value =
+    round(3.281 * document.mainform.mps.value, 0)
+}
+
+function mpschg() {
+  mpschg1();
+  calc();
+}
+
+function revcalc() {
+}
+
+function revdens() {
+}
+
+function revjem() {
+}
+
+function jrevcalc() {
+}
+
+function round(x, places) {
+  fac = Math.pow(10, places);
+  return Math.round(x * fac) / fac
+}
+
+function modify(weight, velocity, diameter) {
+  document.mainform.weight.value = weight
+  document.mainform.velocity.value = velocity;
+  document.mainform.diameter.value = diameter;
+  grcalc();
+  ozcalc();
+  mmcalc();
+  ggcalc();
+  mpscalc();
+  calc();
+}
+
+function shotmodify(ounces, velocity, gauge) {
+  document.mainform.oz.value = ounces;
+  document.mainform.velocity.value = velocity;
+  document.mainform.gauge.value = gauge;
+  ozchg1();
+  ggchg1();
+  mpscalc();
+  calc();
+  
+}
+</script>
+</head>
+<body onLoad="modify(150, 2820, 0.308);">
+<b>Muzzle Energy Computer</b>
+<p>
+<form name="mainform">
+<table>
+<tr>
+<td align="right">Bullet Weight (grains):</td>
+<td><input type="text" name="weight" onChange="wchg();" onKeyup="wchg();"></td>
+<td align="right">(grams):</td>
+<td><input type="text" name="gr" onChange="grchg();" onKeyup="grchg();"></td>
+<td align="right">(ounces):</td>
+<td><input type="text" name="oz" onChange="ozchg();" onKeyup="ozchg();"></td>
+</tr>
+<tr>
+<td align="right">Velocity (feet/second):</td>
+<td><input type="text" name="velocity" onChange="vchg();" onKeyup="vchg();"></td>
+<td align="right">(m/s):</td>
+<td><input type="text" name="mps" onchange="mpschg();" onKeyup="mpschg();"></td>
+</tr>
+<tr>
+<td align="right">Bullet diameter (inches):</td>
+<td><input type="text" name="diameter" onChange="dchg();" onKeyup="dchg();"></td>
+<td align="right">(mm):</td>
+<td><input type="text" name="mm" onChange="mmchg();" onKeyup="mmchg();"></td>
+<td align="right">(gauge):</td>
+<td><input type="text" name="gauge" onChange="ggchg();" onKeyup="ggchg();"></td>
+<tr>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td align="right">Energy (foot pounds):</td>
+<td><input type="text" name="energy" onChange="revcalc();" onKeyup="revcalc();"></td>
+<td align="right">(joules):</td>
+<td><input type="text" name="joule" onChange="jrevcalc();" onKeyup="jrevcalc();"></td>
+</tr>
+<tr>
+<td align="right"><a href="#efficacy">Efficacy</a> (energy x area):</td>
+<td><input type="text" name="efficacy" onChange="revcalc();" onKeyup="revcalc();"></td>
+<td align="right"><a href="#secdens">Sec. Dens.</a>:</td>
+<td><input type="text" name="secdens" onChange="revdens();" onKeyup="revdens();"></td>
+<td align="right">E*SD:</td>
+<td><input type="text" name="jem" onChange="revjem();" onKeyup="revjem();"></td>
+</tr>
+</table>
+</form>
+
+The top three rows above are active. Change any number and everything
+dependent on it will be recomputed. Click a button below to fill in
+values for the linked load. More ballistics for Remington ammo
+<a href="http://www.remington.com/products/ammunition/ballistics/">
+here</a>.<br>
+<br>
+Rifle:<br>
+<button onClick="modify(55, 3240, .224);">&nbsp;223 Remington (5.56 Nato)&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=centerfire&cal=6">
+Remington Express & UMC</a>
+<button onClick="modify(55, 2773, .224);">&nbsp;100 yards&nbsp;</button>
+<button onClick="modify(55, 2352, .224);">&nbsp;200&nbsp;</button>
+<button onClick="modify(55, 1969, .224);">&nbsp;300&nbsp;</button>
+<br>
+<button onClick="modify(125, 2365, .309);">&nbsp;7.62x39 (AK-47)&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=centerfire&cal=36">
+Remington Express</a>
+<button onClick="modify(125, 2062, .309);">&nbsp;100 yards&nbsp;</button>
+<button onClick="modify(125, 1783, .309);">&nbsp;200&nbsp;</button>
+<button onClick="modify(125, 1533, .309);">&nbsp;300&nbsp;</button>
+<br>
+<button onClick="modify(150, 2820, .308);">&nbsp;308 Winchester (7.62 Nato)&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=centerfire&cal=33">
+Remington Express & UMC</a>
+<button onClick="modify(150, 2533, .308);">&nbsp;100 yards&nbsp;</button>
+<button onClick="modify(150, 2263, .308);">&nbsp;200&nbsp;</button>
+<button onClick="modify(150, 2009, .308);">&nbsp;300&nbsp;</button>
+<br>
+<button onClick="modify(180, 2700, .308);">&nbsp;30-06 Springfield&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=centerfire&cal=30">
+Remington Express</a>
+<button onClick="modify(180, 2485, .308);">&nbsp;100 yards&nbsp;</button>
+<button onClick="modify(180, 2280, .308);">&nbsp;200&nbsp;</button>
+<button onClick="modify(180, 2084, .308);">&nbsp;300&nbsp;</button>
+<br>
+<button onClick="modify(240, 2350, .430);">&nbsp;444 Marlin&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=centerfire&cal=53">
+Remington Express</a>
+<button onClick="modify(240, 1815, .430);">&nbsp;100 yards&nbsp;</button>
+<button onClick="modify(240, 1377, .430);">&nbsp;200&nbsp;</button>
+<button onClick="modify(240, 1087, .430);">&nbsp;300&nbsp;</button>
+<br>
+<br>
+Handgun:<br>
+<button onClick="modify(90, 1000, .357);">&nbsp;380 Auto&nbsp;</button>
+<a href="http://www.hornady.com/store/380-Auto-90-gr-Critical-Defense/">
+Hornady FTX Critical Defense</a>
+<button onClick="modify(90, 910, .357);">&nbsp;50 yards&nbsp;</button>
+<button onClick="modify(90, 841, .357);">&nbsp;100&nbsp;</button>
+<br>
+<button onClick="modify(124, 1180, .355);">&nbsp;9mm Luger&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=pistol&cal=6">
+Remington Golden Saber +P</a>
+<button onClick="modify(124, 1089, .355);">&nbsp;50 feet&nbsp;</button>
+<button onClick="modify(124, 1021, .355);">&nbsp;100&nbsp;</button>
+<br>
+<button onClick="modify(158, 1235, .358);">&nbsp;357 Magnum&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=pistol&cal=5">
+Remington Express</a>
+<button onClick="modify(158, 1104, .358);">&nbsp;50 feet&nbsp;</button>
+<button onClick="modify(158, 1015, .358);">&nbsp;100&nbsp;</button>
+<br>
+<button onClick="modify(165, 1150, .402);">&nbsp;40 S&W&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=pistol&cal=14">
+Remington Golden Saber</a>
+<button onClick="modify(165, 1040, .402);">&nbsp;50 feet&nbsp;</button>
+<button onClick="modify(165, 964, .402);">&nbsp;100&nbsp;</button>
+<br>
+<button onClick="modify(230, 875, .451);">&nbsp;45 Auto&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=pistol&cal=19">
+Remington Golden Saber</a>
+<button onClick="modify(230, 833, .451);">&nbsp;50 feet&nbsp;</button>
+<button onClick="modify(230, 795, .451);">&nbsp;100&nbsp;</button>
+<br>
+<button onClick="modify(240, 1180, .430);">&nbsp;44 Magnum&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/results/default.aspx?type=pistol&cal=16">
+Remington Express</a>
+<button onClick="modify(240, 1081, .430);">&nbsp;50 feet&nbsp;</button>
+<button onClick="modify(240, 1010, .430);">&nbsp;100&nbsp;</button>
+<br>
+<br>
+Shotgun:<br>
+<button onClick="shotmodify(1, 1680, 12);">&nbsp;12 Gauge Slug&nbsp;</button>
+<a href="http://www.remington.com/products/ammunition/ballistics/shotshell_slug_loads.asp">
+SP12SRS 2 3/4" Slugger Rifled Slug</a>
+<button onClick="shotmodify(1, 1285, 12);">&nbsp;50 yards&nbsp;</button>
+<button onClick="shotmodify(1, 1045, 12);">&nbsp;100&nbsp;</button>
+<br>
+<p>
+Note: this page is entirely self-contained. It requires no server-side
+code to operate. All the computations are done by JavaScript code
+embedded in the HTML. If you "Save As..." in your browser, you can run
+it off-line.
+<p>
+<a name="efficacy">
+<b>Efficacy</b> is a measure proposed by
+<a href="http://lneilsmith.org">
+L. Neil Smith</a>. It is defined as energy in foot pounds multiplied
+by projectile cross-sectional area in square inches. Neil says that
+this is a pretty good indicator of the relative efficacy against live
+targets of different projectiles and loads. In an email about this
+page, Neil wrote, "I'm not absolutely certain of its applicability to
+rifles (although it looks pretty good and is fine for slugs and rifles
+like .45/70). There are other factors at work above 2000-2500 feet per
+second. But every year that passes convinces me more that this is the
+perfect program for predicting handgun performance."</a>
+<p>
+<a name="secdens">
+<b>Sectional Density</b> ("Sec. Dens." above) is defined as the weight (w)
+of the bullet in pounds divided by the square of its diameter (d) in
+inches: w/d^2 = pounds per square inch.</a>
+<p>
+I used Remington ammo for the preset buttons only because the
+ballistics were easy to find on the web. I handload or use military
+surplus for most of my shooting. You can fairly easily change the
+&lt;button> tags for your favorite loads.
+<p>
+<a href="energy/index.html">
+Muzzle Energy for Palm</a> is a Palm handheld organizer version of a
+subset of this page's functionality.<br>
+<a href="mec.html">
+iPhone Muzzle Energy Computer</a> is a version of this page formatted
+to fit on the screen of Apple's
+<a href="http://apple.com/iphone/">
+iPhone</a>.
+<p>
+<hr>
+<p>
+Copyright &copy; 2006 <a href="http://billstclair.com/">Bill St. Clair</a><br>
+Copying and reposting allowed as long as this copyright remains intact
+</body>
+</html>
