@@ -18,6 +18,9 @@ module Energy.Math exposing
     , constants
     , diameterInGaugeToInches
     , diameterInInchesToGauge
+    , emptyEnergy
+    , emptyImperialMeasurements
+    , emptyMeasurements
     , grainsToOunces
     , imperialToMeasurements
     , measurementsToImperial
@@ -34,6 +37,11 @@ type alias Measurements =
     }
 
 
+emptyMeasurements : Measurements
+emptyMeasurements =
+    Measurements 0 0 0 0 0
+
+
 type alias ImperialMeasurements =
     { grams : Float
     , metersPerSecond : Float
@@ -41,11 +49,21 @@ type alias ImperialMeasurements =
     }
 
 
+emptyImperialMeasurements : ImperialMeasurements
+emptyImperialMeasurements =
+    ImperialMeasurements 0 0 0
+
+
 type alias Energy =
     { footPounds : Float
     , efficacy : Float
     , sectionalDensity : Float
     }
+
+
+emptyEnergy : Energy
+emptyEnergy =
+    Energy 0 0 0
 
 
 constants =

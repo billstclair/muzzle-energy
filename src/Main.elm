@@ -18,6 +18,9 @@ import Browser.Events as Events
 import Browser.Navigation as Navigation exposing (Key)
 import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
 import Dict exposing (Dict)
+import Energy.Math as Math exposing (Energy, Measurements)
+import FormatNumber exposing (format)
+import FormatNumber.Locales as Locales exposing (Decimals, base)
 import Html
     exposing
         ( Attribute
@@ -92,8 +95,40 @@ It forces them to open in a new tab/window.
 port openWindow : Value -> Cmd msg
 
 
+type alias Inputs =
+    { grains : String
+    , ounces : String
+    , fps : String
+    , inches : String
+    , gauge : String
+    }
+
+
+emptyInputs =
+    { grains = digitsFormat zeroDigits emptyMeasurements.grains
+    , ounces = digitsFormat threeDigits emptyMeasurements.ounces
+    , fps = digitsFormat zeroDigits emptyMeasurements.feetPerSecond
+    , inches = digitsFormat threeDigits emptyMeasurements.diameterInInches
+    , gauge = digitsFormat threeDigits emptyMeasurements.gauge
+    }
+
+
+emptyMeasurements =
+    { grains = 180
+    , ounces = 0
+    , feetPerSecond = 2800
+    , diameterInInches = 0.308
+    , gauge = 0
+    }
+        |> Math.grainsToOunces
+        |> Math.diameterInInchesToGauge
+
+
 type alias Model =
     { cmdPort : Value -> Cmd Msg
+    , inputs : Inputs
+    , measurements : Measurements
+    , energy : Energy
     }
 
 
@@ -127,8 +162,18 @@ main =
 
 init : Value -> Url -> Key -> ( Model, Cmd Msg )
 init value url key =
+    let
+        inputs =
+            emptyInputs
+
+        measurements =
+            emptyMeasurements
+    in
     { cmdPort =
         PortFunnels.getCmdPort (\v -> Noop) "foo" False
+    , inputs = inputs
+    , measurements = measurements
+    , energy = Math.computeEnergy measurements
     }
         |> withNoCmd
 
@@ -140,6 +185,10 @@ subscriptions model =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        inputs =
+            model.inputs
+    in
     case msg of
         Noop ->
             model |> withNoCmd
@@ -160,19 +209,93 @@ update msg model =
             model |> withNoCmd
 
         SetGrains s ->
-            model |> withNoCmd
+            setInput
+                (\g m ->
+                    { m | grains = g }
+                        |> Math.grainsToOunces
+                )
+                (\m i ->
+                    { i | ounces = digitsFormat threeDigits m.ounces }
+                )
+                s
+                { model | inputs = { inputs | grains = s } }
+                |> withNoCmd
 
         SetOunces s ->
-            model |> withNoCmd
+            setInput
+                (\o m ->
+                    { m | ounces = o }
+                        |> Math.ouncesToGrains
+                )
+                (\m i ->
+                    { i | grains = digitsFormat zeroDigits m.grains }
+                )
+                s
+                { model | inputs = { inputs | ounces = s } }
+                |> withNoCmd
 
         SetFeetPerSecond s ->
-            model |> withNoCmd
+            setInput (\fps m -> { m | feetPerSecond = fps })
+                (\m i -> i)
+                s
+                { model | inputs = { inputs | fps = s } }
+                |> withNoCmd
 
         SetInches s ->
-            model |> withNoCmd
+            setInput
+                (\i m ->
+                    { m | diameterInInches = i }
+                        |> Math.diameterInInchesToGauge
+                )
+                (\m i ->
+                    { i | gauge = digitsFormat threeDigits m.gauge }
+                )
+                s
+                { model | inputs = { inputs | inches = s } }
+                |> withNoCmd
 
         SetGauge s ->
-            model |> withNoCmd
+            setInput
+                (\g m ->
+                    { m | gauge = g }
+                        |> Math.diameterInGaugeToInches
+                )
+                (\m i ->
+                    { i | inches = digitsFormat threeDigits m.diameterInInches }
+                )
+                s
+                { model | inputs = { inputs | gauge = s } }
+                |> withNoCmd
+
+
+digitsFormat : Decimals -> Float -> String
+digitsFormat decimals v =
+    let
+        locale =
+            { base | decimals = decimals }
+    in
+    format locale v
+
+
+setInput : (Float -> Measurements -> Measurements) -> (Measurements -> Inputs -> Inputs) -> String -> Model -> Model
+setInput setter inputter string model =
+    case String.toFloat string of
+        Nothing ->
+            model
+
+        Just v ->
+            let
+                measurements =
+                    setter v model.measurements
+
+                inputs =
+                    inputter measurements model.inputs
+            in
+            { model
+                | inputs = inputs
+                , measurements = measurements
+                , energy = Math.computeEnergy measurements
+            }
 
 
 tr : List (Html Msg) -> Html Msg
@@ -190,53 +313,79 @@ b s =
     Html.b [] [ text s ]
 
 
-numberInput : (String -> Msg) -> Html Msg
-numberInput wrapper =
+numberInput : (String -> Msg) -> String -> Html Msg
+numberInput wrapper v =
     input
         [ style "width" "5em"
         , onInput wrapper
+        , value v
         ]
         []
 
 
+numberDisplay : Decimals -> Float -> Html Msg
+numberDisplay decimals v =
+    let
+        locale =
+            { base | decimals = decimals }
+    in
+    input
+        [ style "width" "5em"
+        , value <| format locale v
+        ]
+        []
+
+
+zeroDigits =
+    Locales.Exact 0
+
+
+threeDigits =
+    Locales.Exact 3
+
+
 view : Model -> Document Msg
 view model =
+    let
+        inputs =
+            model.inputs
+
+        energy =
+            model.energy
+    in
     { title = "Muzzle Energy"
     , body =
         [ h2 [] [ text "Muzzle Energy" ]
-        , p []
-            [ text "A new, smarter, muzzle energy computer."
-            ]
         , table []
             [ tr
                 [ td [ b "Bullet Weight (grains): " ]
                 , td
-                    [ numberInput SetGrains ]
+                    [ numberInput SetGrains inputs.grains ]
                 , td [ b "(ounces): " ]
                 , td
-                    [ numberInput SetOunces ]
+                    [ numberInput SetOunces inputs.ounces ]
                 ]
             , tr
                 [ td [ b "Velocity (feet/second): " ]
                 , td
-                    [ numberInput SetFeetPerSecond ]
+                    [ numberInput SetFeetPerSecond inputs.fps ]
                 ]
             , tr
                 [ td [ b "Bullet diameter (inches): " ]
                 , td
-                    [ numberInput SetInches ]
+                    [ numberInput SetInches inputs.inches ]
                 , td [ b "(gauge): " ]
                 , td
-                    [ numberInput SetGauge ]
+                    [ numberInput SetGauge inputs.gauge ]
                 ]
             , tr [ td [ text "." ] ]
             , tr
                 [ td [ b "Energy: " ]
-                , td []
+                , td [ numberDisplay zeroDigits energy.footPounds ]
                 ]
             , tr
                 [ td [ b "Efficacy (energy x area): " ]
-                , td []
+                , td [ numberDisplay zeroDigits energy.efficacy ]
                 ]
             ]
         , p []
