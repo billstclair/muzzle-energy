@@ -21,11 +21,17 @@ module Energy.Math exposing
     , emptyEnergy
     , emptyImperialMeasurements
     , emptyMeasurements
+    , encodeMeasurements
     , grainsToOunces
     , imperialToMeasurements
+    , measurementsDecoder
     , measurementsToImperial
     , ouncesToGrains
     )
+
+import Json.Decode as JD exposing (Decoder)
+import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
+import Json.Encode as JE exposing (Value)
 
 
 type alias Measurements =
@@ -40,6 +46,27 @@ type alias Measurements =
 emptyMeasurements : Measurements
 emptyMeasurements =
     Measurements 0 0 0 0 0
+
+
+encodeMeasurements : Measurements -> Value
+encodeMeasurements { grains, feetPerSecond, diameterInInches, ounces, gauge } =
+    JE.object
+        [ ( "grains", JE.float grains )
+        , ( "feetPersecond", JE.float feetPerSecond )
+        , ( "diameterInInches", JE.float diameterInInches )
+        , ( "ounces", JE.float ounces )
+        , ( "gauge", JE.float gauge )
+        ]
+
+
+measurementsDecoder : Decoder Measurements
+measurementsDecoder =
+    JD.succeed Measurements
+        |> required "grains" JD.float
+        |> required "feetPerSecond" JD.float
+        |> required "diameterInInches" JD.float
+        |> required "ounces" JD.float
+        |> required "gauge" JD.float
 
 
 type alias ImperialMeasurements =

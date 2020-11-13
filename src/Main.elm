@@ -71,8 +71,15 @@ import Html.Attributes
         , width
         )
 import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown)
+import Json.Decode as JD exposing (Decoder)
+import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
 import Json.Encode as JE exposing (Value)
-import PortFunnels
+import PortFunnel.LocalStorage as LocalStorage
+    exposing
+        ( Message
+        , Response(..)
+        )
+import PortFunnels exposing (FunnelDict, Handler(..))
 import Set exposing (Set)
 import String.Extra as SE
 import Svg exposing (Svg, svg)
@@ -83,7 +90,7 @@ import Time exposing (Month, Posix, Zone)
 import Url exposing (Url)
 
 
-state =
+funnelState =
     PortFunnels.initialState "muzzle-energy"
 
 
@@ -132,12 +139,6 @@ type alias Model =
     }
 
 
-type Page
-    = HomePage
-    | ColumnsPage
-    | ExplorerPage
-
-
 type Msg
     = Noop
     | OnUrlRequest UrlRequest
@@ -147,6 +148,7 @@ type Msg
     | SetFeetPerSecond String
     | SetInches String
     | SetGauge String
+    | Process Value
 
 
 main =
@@ -266,6 +268,66 @@ update msg model =
                 s
                 { model | inputs = { inputs | gauge = s } }
                 |> withNoCmd
+
+        Process value ->
+            -- TODO
+            model |> withNoCmd
+
+
+funnelDict : FunnelDict Model Msg
+funnelDict =
+    PortFunnels.makeFunnelDict [ LocalStorageHandler storageHandler ] getCmdPort
+
+
+{-| Get the output port. Simulation not supported (`False` below).
+-}
+getCmdPort : String -> Model -> (Value -> Cmd Msg)
+getCmdPort moduleName model =
+    PortFunnels.getCmdPort Process moduleName False
+
+
+storageHandler : LocalStorage.Response -> PortFunnels.State -> Model -> ( Model, Cmd Msg )
+storageHandler response state model =
+    case response of
+        LocalStorage.GetResponse { label, key, value } ->
+            model
+                |> withNoCmd
+
+        LocalStorage.ListKeysResponse { label, keys } ->
+            model
+                |> withNoCmd
+
+        _ ->
+            model |> withNoCmd
+
+
+type alias SavedModel =
+    { measurements : Measurements
+    }
+
+
+savedToModel : SavedModel -> Model -> Model
+savedToModel saved model =
+    { model
+        | measurements = saved.measurements
+    }
+
+
+modelToSaved : Model -> SavedModel
+modelToSaved model =
+    { measurements = model.measurements }
+
+
+encodeSavedModel : SavedModel -> Value
+encodeSavedModel { measurements } =
+    JE.object
+        [ ( "measurements", Math.encodeMeasurements measurements ) ]
+
+
+savedModelDecoder : Decoder SavedModel
+savedModelDecoder =
+    JD.succeed SavedModel
+        |> required "measurements" Math.measurementsDecoder
 
 
 digitsFormat : Decimals -> Float -> String
