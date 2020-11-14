@@ -111,12 +111,13 @@ type alias Inputs =
     }
 
 
-emptyInputs =
-    { grains = digitsFormat zeroDigits emptyMeasurements.grains
-    , ounces = digitsFormat threeDigits emptyMeasurements.ounces
-    , fps = digitsFormat zeroDigits emptyMeasurements.feetPerSecond
-    , inches = digitsFormat threeDigits emptyMeasurements.diameterInInches
-    , gauge = digitsFormat threeDigits emptyMeasurements.gauge
+measurementsToInputs : Measurements -> Inputs
+measurementsToInputs measurements =
+    { grains = digitsFormat zeroDigits measurements.grains
+    , ounces = digitsFormat threeDigits measurements.ounces
+    , fps = digitsFormat zeroDigits measurements.feetPerSecond
+    , inches = digitsFormat threeDigits measurements.diameterInInches
+    , gauge = digitsFormat threeDigits measurements.gauge
     }
 
 
@@ -131,11 +132,18 @@ emptyMeasurements =
         |> Math.diameterInInchesToGauge
 
 
+type Started
+    = NotStarted
+    | StartedReadingModel
+    | Started
+
+
 type alias Model =
     { cmdPort : Value -> Cmd Msg
     , inputs : Inputs
     , measurements : Measurements
     , energy : Energy
+    , started : Started
     }
 
 
@@ -165,28 +173,52 @@ main =
 init : Value -> Url -> Key -> ( Model, Cmd Msg )
 init value url key =
     let
-        inputs =
-            emptyInputs
-
         measurements =
             emptyMeasurements
+
+        inputs =
+            measurementsToInputs measurements
     in
     { cmdPort =
         PortFunnels.getCmdPort (\v -> Noop) "foo" False
     , inputs = inputs
     , measurements = measurements
     , energy = Math.computeEnergy measurements
+    , started = NotStarted
     }
         |> withNoCmd
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [ PortFunnels.subscriptions (\v -> Noop) model ]
+    Sub.batch [ PortFunnels.subscriptions Process model ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        ( mdl, cmd ) =
+            updateInternal msg model
+
+        savedModel =
+            modelToSaved model
+
+        savedMdl =
+            modelToSaved mdl
+    in
+    mdl
+        |> withCmds
+            [ cmd
+            , if savedModel == savedMdl then
+                Cmd.none
+
+              else
+                put pk.model (Just <| encodeSavedModel savedMdl)
+            ]
+
+
+updateInternal : Msg -> Model -> ( Model, Cmd Msg )
+updateInternal msg model =
     let
         inputs =
             model.inputs
@@ -270,8 +302,33 @@ update msg model =
                 |> withNoCmd
 
         Process value ->
-            -- TODO
-            model |> withNoCmd
+            case
+                PortFunnels.processValue funnelDict
+                    value
+                    -- no state change for LocalStorage
+                    initialFunnelState
+                    model
+            of
+                Err error ->
+                    let
+                        err =
+                            Debug.log "Process error" error
+                    in
+                    model |> withNoCmd
+
+                Ok ( mdl, cmd ) ->
+                    let
+                        mdl2 =
+                            if mdl.measurements == model.measurements then
+                                mdl
+
+                            else
+                                { mdl
+                                    | inputs = measurementsToInputs mdl.measurements
+                                    , energy = Math.computeEnergy mdl.measurements
+                                }
+                    in
+                    mdl2 |> withCmd cmd
 
 
 funnelDict : FunnelDict Model Msg
@@ -281,24 +338,69 @@ funnelDict =
 
 {-| Get the output port. Simulation not supported (`False` below).
 -}
-getCmdPort : String -> Model -> (Value -> Cmd Msg)
+getCmdPort : String -> model -> (Value -> Cmd Msg)
 getCmdPort moduleName model =
     PortFunnels.getCmdPort Process moduleName False
 
 
 storageHandler : LocalStorage.Response -> PortFunnels.State -> Model -> ( Model, Cmd Msg )
 storageHandler response state model =
+    let
+        mdl =
+            { model
+                | started =
+                    if
+                        LocalStorage.isLoaded state.storage
+                            && (model.started == NotStarted)
+                    then
+                        StartedReadingModel
+
+                    else
+                        model.started
+            }
+
+        cmd =
+            if
+                (mdl.started == StartedReadingModel)
+                    && (model.started == NotStarted)
+            then
+                get pk.model
+
+            else
+                Cmd.none
+    in
     case response of
         LocalStorage.GetResponse { label, key, value } ->
-            model
-                |> withNoCmd
+            let
+                mdl2 =
+                    { mdl | started = Started }
+            in
+            case value of
+                Nothing ->
+                    mdl2 |> withCmd cmd
+
+                Just v ->
+                    if key == pk.model then
+                        case JD.decodeValue savedModelDecoder v of
+                            Err err ->
+                                let
+                                    e =
+                                        Debug.log "err" err
+                                in
+                                mdl2 |> withCmd cmd
+
+                            Ok savedModel ->
+                                savedToModel savedModel mdl2 |> withCmd cmd
+
+                    else
+                        mdl2 |> withCmd cmd
 
         LocalStorage.ListKeysResponse { label, keys } ->
-            model
-                |> withNoCmd
+            mdl
+                |> withCmd cmd
 
         _ ->
-            model |> withNoCmd
+            mdl |> withCmd cmd
 
 
 type alias SavedModel =
@@ -328,6 +430,59 @@ savedModelDecoder : Decoder SavedModel
 savedModelDecoder =
     JD.succeed SavedModel
         |> required "measurements" Math.measurementsDecoder
+
+
+{-| Persistent storage keys
+-}
+pk =
+    { model = "model"
+    }
+
+
+put : String -> Maybe Value -> Cmd Msg
+put key value =
+    localStorageSend (LocalStorage.put (Debug.log "put" key) value)
+
+
+get : String -> Cmd Msg
+get key =
+    localStorageSend (LocalStorage.get <| Debug.log "get" key)
+
+
+getLabeled : String -> String -> Cmd Msg
+getLabeled label key =
+    localStorageSend
+        (LocalStorage.getLabeled label <|
+            Debug.log ("getLabeled " ++ label) key
+        )
+
+
+localStoragePrefix : String
+localStoragePrefix =
+    "muzzle-energy"
+
+
+initialFunnelState : PortFunnels.State
+initialFunnelState =
+    PortFunnels.initialState localStoragePrefix
+
+
+localStorageSend : LocalStorage.Message -> Cmd Msg
+localStorageSend message =
+    LocalStorage.send (getCmdPort LocalStorage.moduleName ())
+        message
+        initialFunnelState.storage
+
+
+listKeysLabeled : String -> String -> Cmd Msg
+listKeysLabeled label prefix =
+    localStorageSend (LocalStorage.listKeysLabeled label prefix)
+
+
+
+---
+--- Rendering
+---
 
 
 digitsFormat : Decimals -> Float -> String

@@ -52,7 +52,7 @@ encodeMeasurements : Measurements -> Value
 encodeMeasurements { grains, feetPerSecond, diameterInInches, ounces, gauge } =
     JE.object
         [ ( "grains", JE.float grains )
-        , ( "feetPersecond", JE.float feetPerSecond )
+        , ( "feetPerSecond", JE.float feetPerSecond )
         , ( "diameterInInches", JE.float diameterInInches )
         , ( "ounces", JE.float ounces )
         , ( "gauge", JE.float gauge )
