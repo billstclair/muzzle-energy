@@ -138,12 +138,245 @@ type Started
     | Started
 
 
+type Unit
+    = Feet
+    | Yards
+
+
+unitToInt : Unit -> Int
+unitToInt unit =
+    case unit of
+        Feet ->
+            1
+
+        Yards ->
+            0
+
+
+intToUnit : Int -> Unit
+intToUnit int =
+    if int == 1 then
+        Feet
+
+    else
+        Yards
+
+
+type Weapon
+    = Rifle
+    | Handgun
+    | Shotgun
+
+
+weaponToInt : Weapon -> Int
+weaponToInt weapon =
+    case weapon of
+        Rifle ->
+            0
+
+        Handgun ->
+            1
+
+        Shotgun ->
+            2
+
+
+intToWeapon : Int -> Weapon
+intToWeapon int =
+    case int of
+        2 ->
+            Shotgun
+
+        1 ->
+            Handgun
+
+        _ ->
+            Rifle
+
+
+type alias Sample =
+    { name : String
+    , weapon : Weapon
+    , unit : Unit
+    , distance : Int
+    , measurements : Measurements
+    }
+
+
+sampleIndex : Sample -> ( String, ( Int, Int, Int ) )
+sampleIndex { name, weapon, unit, distance } =
+    ( name, ( weaponToInt weapon, unitToInt unit, distance ) )
+
+
+type alias SampleDict =
+    Dict ( String, ( Int, Int, Int ) ) Sample
+
+
+sn =
+    { s223 = "223 Remington (5.56 NATO)"
+    , s762 = "7.62x39 (AK-47)"
+    , s308 = "308 Winchester (7.72 NATO)"
+    , s3006 = "30-06 Springfield"
+    , s444 = "444 Marlin"
+    , s380 = "380 Auto"
+    , s9mm = "9mm Luger"
+    , s357 = "357 Magnum"
+    , s40sw = "40 S&W"
+    , s45acp = "45 Auto (ACP)"
+    , s44mag = "44 Magnum"
+    , s12ga = "12 Gauge Slug"
+    }
+
+
+ms : Float -> Float -> Float -> Measurements
+ms grains feetPerSecond diameterInInches =
+    { grains = grains
+    , feetPerSecond = feetPerSecond
+    , diameterInInches = diameterInInches
+    , ounces = 0
+    , gauge = 0
+    }
+        |> Math.grainsToOunces
+        |> Math.diameterInInchesToGauge
+
+
+oneCaliberSamples : String -> Weapon -> Unit -> Float -> Float -> List ( Int, Float ) -> List Sample
+oneCaliberSamples name weapon unit grains diameter distanceAndFPSs =
+    List.map
+        (\( distance, fps ) ->
+            Sample name weapon unit distance (ms grains fps diameter)
+        )
+        distanceAndFPSs
+
+
+initialSampleDict : SampleDict
+initialSampleDict =
+    [ oneCaliberSamples sn.s223
+        Rifle
+        Yards
+        55
+        0.224
+        [ ( 0, 3240 )
+        , ( 100, 2773 )
+        , ( 200, 2352 )
+        , ( 300, 1969 )
+        ]
+    , oneCaliberSamples sn.s762
+        Rifle
+        Yards
+        125
+        0.309
+        [ ( 0, 2365 )
+        , ( 100, 2062 )
+        , ( 200, 1783 )
+        , ( 300, 1533 )
+        ]
+    , oneCaliberSamples sn.s308
+        Rifle
+        Yards
+        150
+        0.308
+        [ ( 0, 2820 )
+        , ( 100, 2533 )
+        , ( 200, 2263 )
+        , ( 300, 2009 )
+        ]
+    , oneCaliberSamples sn.s3006
+        Rifle
+        Yards
+        180
+        0.308
+        [ ( 0, 2700 )
+        , ( 100, 2485 )
+        , ( 200, 2280 )
+        , ( 300, 2084 )
+        ]
+    , oneCaliberSamples sn.s444
+        Rifle
+        Yards
+        240
+        0.43
+        [ ( 0, 2350 )
+        , ( 100, 1815 )
+        , ( 200, 1377 )
+        , ( 300, 2084 )
+        ]
+    , oneCaliberSamples sn.s380
+        Handgun
+        Feet
+        90
+        0.357
+        [ ( 0, 1000 )
+        , ( 50, 910 )
+        , ( 100, 841 )
+        ]
+    , oneCaliberSamples sn.s9mm
+        Handgun
+        Feet
+        124
+        0.355
+        [ ( 0, 1180 )
+        , ( 50, 1089 )
+        , ( 100, 1021 )
+        ]
+    , oneCaliberSamples sn.s357
+        Handgun
+        Feet
+        158
+        0.358
+        [ ( 0, 1235 )
+        , ( 50, 1104 )
+        , ( 100, 1015 )
+        ]
+    , oneCaliberSamples sn.s40sw
+        Handgun
+        Feet
+        165
+        0.402
+        [ ( 0, 1150 )
+        , ( 50, 1040 )
+        , ( 100, 964 )
+        ]
+    , oneCaliberSamples sn.s45acp
+        Handgun
+        Feet
+        230
+        0.451
+        [ ( 0, 875 )
+        , ( 50, 833 )
+        , ( 100, 795 )
+        ]
+    , oneCaliberSamples sn.s44mag
+        Handgun
+        Feet
+        240
+        0.43
+        [ ( 0, 1180 )
+        , ( 50, 1081 )
+        , ( 100, 1010 )
+        ]
+    , oneCaliberSamples sn.s12ga
+        Shotgun
+        Yards
+        437
+        0.729
+        [ ( 0, 1680 )
+        , ( 50, 1285 )
+        , ( 100, 1045 )
+        ]
+    ]
+        |> List.concat
+        |> List.map (\s -> ( sampleIndex s, s ))
+        |> Dict.fromList
+
+
 type alias Model =
     { cmdPort : Value -> Cmd Msg
     , inputs : Inputs
     , measurements : Measurements
     , energy : Energy
     , started : Started
+    , samples : SampleDict
     }
 
 
@@ -185,6 +418,7 @@ init value url key =
     , measurements = measurements
     , energy = Math.computeEnergy measurements
     , started = NotStarted
+    , samples = initialSampleDict
     }
         |> withNoCmd
 
