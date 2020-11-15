@@ -1,4 +1,4 @@
-[muzzle-energy.com](https://muzzel-energy.com/) is a muzzle energy computer, updated, with many more features than <a href='https://billstclair.com/energy.html'>billstclair.com/energy.html</a>.
+[muzzle-energy.com](https://muzzle-energy.com/) is a muzzle energy computer, updated, with many more features than <a href='https://billstclair.com/energy.html'>billstclair.com/energy.html</a>.
 
 For development:
 

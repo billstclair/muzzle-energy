@@ -197,19 +197,22 @@ intToWeapon int =
 type alias Sample =
     { name : String
     , weapon : Weapon
+    , sort : Float
     , unit : Unit
     , distance : Int
     , measurements : Measurements
     }
 
 
-sampleIndex : Sample -> ( String, ( Int, Int, Int ) )
-sampleIndex { name, weapon, unit, distance } =
-    ( name, ( weaponToInt weapon, unitToInt unit, distance ) )
+sampleIndex : Sample -> ( ( Int, Float, Int ), ( String, Int ) )
+sampleIndex { name, weapon, sort, distance, unit } =
+    ( ( weaponToInt weapon, sort, distance )
+    , ( name, unitToInt unit )
+    )
 
 
 type alias SampleDict =
-    Dict ( String, ( Int, Int, Int ) ) Sample
+    Dict ( ( Int, Float, Int ), ( String, Int ) ) Sample
 
 
 sn =
@@ -240,11 +243,11 @@ ms grains feetPerSecond diameterInInches =
         |> Math.diameterInInchesToGauge
 
 
-oneCaliberSamples : String -> Weapon -> Unit -> Float -> Float -> List ( Int, Float ) -> List Sample
-oneCaliberSamples name weapon unit grains diameter distanceAndFPSs =
+oneCaliberSamples : String -> Weapon -> Float -> Unit -> Float -> Float -> List ( Int, Float ) -> List Sample
+oneCaliberSamples name weapon sort unit grains diameter distanceAndFPSs =
     List.map
         (\( distance, fps ) ->
-            Sample name weapon unit distance (ms grains fps diameter)
+            Sample name weapon sort unit distance (ms grains fps diameter)
         )
         distanceAndFPSs
 
@@ -253,6 +256,7 @@ initialSampleDict : SampleDict
 initialSampleDict =
     [ oneCaliberSamples sn.s223
         Rifle
+        0
         Yards
         55
         0.224
@@ -263,6 +267,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s762
         Rifle
+        1
         Yards
         125
         0.309
@@ -273,6 +278,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s308
         Rifle
+        2
         Yards
         150
         0.308
@@ -283,6 +289,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s3006
         Rifle
+        3
         Yards
         180
         0.308
@@ -293,6 +300,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s444
         Rifle
+        4
         Yards
         240
         0.43
@@ -303,6 +311,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s380
         Handgun
+        0
         Feet
         90
         0.357
@@ -312,6 +321,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s9mm
         Handgun
+        1
         Feet
         124
         0.355
@@ -321,6 +331,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s357
         Handgun
+        2
         Feet
         158
         0.358
@@ -330,6 +341,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s40sw
         Handgun
+        3
         Feet
         165
         0.402
@@ -339,6 +351,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s45acp
         Handgun
+        4
         Feet
         230
         0.451
@@ -348,6 +361,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s44mag
         Handgun
+        5
         Feet
         240
         0.43
@@ -357,6 +371,7 @@ initialSampleDict =
         ]
     , oneCaliberSamples sn.s12ga
         Shotgun
+        0
         Yards
         437
         0.729
