@@ -415,6 +415,7 @@ type alias Model =
     , energy : Energy
     , started : Started
     , samples : SampleDict
+    , sample : Maybe Sample
     }
 
 
@@ -427,6 +428,7 @@ type Msg
     | SetFeetPerSecond String
     | SetInches String
     | SetGauge String
+    | SetSample Sample
     | Process Value
 
 
@@ -457,6 +459,7 @@ init value url key =
     , energy = Math.computeEnergy measurements
     , started = NotStarted
     , samples = initialSampleDict
+    , sample = Nothing
     }
         |> withNoCmd
 
@@ -524,7 +527,10 @@ updateInternal msg model =
                     { i | ounces = digitsFormat threeDigits m.ounces }
                 )
                 s
-                { model | inputs = { inputs | grains = s } }
+                { model
+                    | inputs = { inputs | grains = s }
+                    , sample = Nothing
+                }
                 |> withNoCmd
 
         SetOunces s ->
@@ -537,14 +543,20 @@ updateInternal msg model =
                     { i | grains = digitsFormat zeroDigits m.grains }
                 )
                 s
-                { model | inputs = { inputs | ounces = s } }
+                { model
+                    | inputs = { inputs | ounces = s }
+                    , sample = Nothing
+                }
                 |> withNoCmd
 
         SetFeetPerSecond s ->
             setInput (\fps m -> { m | feetPerSecond = fps })
                 (\m i -> i)
                 s
-                { model | inputs = { inputs | fps = s } }
+                { model
+                    | inputs = { inputs | fps = s }
+                    , sample = Nothing
+                }
                 |> withNoCmd
 
         SetInches s ->
@@ -557,7 +569,10 @@ updateInternal msg model =
                     { i | gauge = digitsFormat threeDigits m.gauge }
                 )
                 s
-                { model | inputs = { inputs | inches = s } }
+                { model
+                    | inputs = { inputs | inches = s }
+                    , sample = Nothing
+                }
                 |> withNoCmd
 
         SetGauge s ->
@@ -570,7 +585,23 @@ updateInternal msg model =
                     { i | inches = digitsFormat threeDigits m.diameterInInches }
                 )
                 s
-                { model | inputs = { inputs | gauge = s } }
+                { model
+                    | inputs = { inputs | gauge = s }
+                    , sample = Nothing
+                }
+                |> withNoCmd
+
+        SetSample sample ->
+            let
+                measurements =
+                    sample.measurements
+            in
+            { model
+                | measurements = measurements
+                , inputs = measurementsToInputs measurements
+                , energy = Math.computeEnergy measurements
+                , sample = Just sample
+            }
                 |> withNoCmd
 
         Process value ->
@@ -835,6 +866,16 @@ threeDigits =
 
 view : Model -> Document Msg
 view model =
+    { title = "Muzzle Energy"
+    , body =
+        [ div [ style "width" "40em" ] <|
+            renderPage model
+        ]
+    }
+
+
+renderPage : Model -> List (Html Msg)
+renderPage model =
     let
         inputs =
             model.inputs
@@ -842,54 +883,81 @@ view model =
         energy =
             model.energy
     in
-    { title = "Muzzle Energy"
-    , body =
-        [ h2 [] [ text "Muzzle Energy" ]
-        , table []
-            [ tr
-                [ td [ b "Bullet Weight (grains): " ]
-                , td
-                    [ numberInput SetGrains inputs.grains ]
-                , td [ b "(ounces): " ]
-                , td
-                    [ numberInput SetOunces inputs.ounces ]
+    [ h2 [] [ text "Muzzle Energy" ]
+    , case model.sample of
+        Nothing ->
+            p []
+                [ text "unknown caliber and distance:" ]
+
+        Just { name, weapon, unit, distance } ->
+            p []
+                [ text name
+                , text " at "
+                , if distance == 0 then
+                    text "muzzle"
+
+                  else
+                    span []
+                        [ text <| String.fromInt distance
+                        , text " "
+                        , text <| unitToString unit
+                        ]
+                , text ":"
                 ]
-            , tr
-                [ td [ b "Velocity (feet/second): " ]
-                , td
-                    [ numberInput SetFeetPerSecond inputs.fps ]
-                ]
-            , tr
-                [ td [ b "Bullet diameter (inches): " ]
-                , td
-                    [ numberInput SetInches inputs.inches ]
-                , td [ b "(gauge): " ]
-                , td
-                    [ numberInput SetGauge inputs.gauge ]
-                ]
-            , tr [ td [ text "." ] ]
-            , tr
-                [ td [ b "Energy: " ]
-                , td [ numberDisplay zeroDigits energy.footPounds ]
-                ]
-            , tr
-                [ td [ b "Efficacy (energy x area): " ]
-                , td [ numberDisplay zeroDigits energy.efficacy ]
-                ]
+    , table []
+        [ tr
+            [ td [ b "Bullet Weight (grains): " ]
+            , td
+                [ numberInput SetGrains inputs.grains ]
+            , td [ b "(ounces): " ]
+            , td
+                [ numberInput SetOunces inputs.ounces ]
             ]
-        , renderSamples model
-        , p []
-            [ a [ href "https://elm-lang.org" ]
-                [ text "Elm" ]
-            , text " "
-            , a [ href "https://github.com/billstclair/muzzle-energy/" ]
-                [ text "GitHub" ]
-            , text " "
-            , a [ href "old/" ]
-                [ text "Old" ]
+        , tr
+            [ td [ b "Velocity (feet/second): " ]
+            , td
+                [ numberInput SetFeetPerSecond inputs.fps ]
+            ]
+        , tr
+            [ td [ b "Bullet diameter (inches): " ]
+            , td
+                [ numberInput SetInches inputs.inches ]
+            , td [ b "(gauge): " ]
+            , td
+                [ numberInput SetGauge inputs.gauge ]
+            ]
+        , tr [ td [ text "." ] ]
+        , tr
+            [ td [ b "Energy: " ]
+            , td [ numberDisplay zeroDigits energy.footPounds ]
+            ]
+        , tr
+            [ td [ b "Efficacy (energy x area): " ]
+            , td [ numberDisplay zeroDigits energy.efficacy ]
             ]
         ]
-    }
+    , p []
+        [ text "The top three rows above are active. Change any number and everything dependent on it will be recomputed. Click a button below to fill in values for the linked load."
+        ]
+    , renderSamples model
+    , p []
+        [ b "Efficacy"
+        , text "is a measure proposed by "
+        , a [ href "http://lneilsmith.org/" ]
+            [ text "L. Neil Smith" ]
+        , text ". It is defined as energy in foot pounds multiplied by projectile cross-sectional area in square inches. Neil says that this is a pretty good indicator of the relative efficacy against live targets of different projectiles and loads. In an email about this page, Neil wrote, \"I'm not absolutely certain of its applicability to rifles (although it looks pretty good and is fine for slugs and rifles like .45/70). There are other factors at work above 2000-2500 feet per second. But every year that passes convinces me more that this is the perfect program for predicting handgun performance.\""
+        ]
+    , p []
+        [ a [ href "https://elm-lang.org" ]
+            [ text "Elm" ]
+        , text " "
+        , a [ href "https://github.com/billstclair/muzzle-energy/" ]
+            [ text "GitHub" ]
+        , text " "
+        , a [ href "old/" ]
+            [ text "Old" ]
+        ]
+    ]
 
 
 br : Html Msg
@@ -941,6 +1009,61 @@ renderSamples model =
 
         -- Render the calibers for a single weapon
         renderNames samples =
-            []
+            case samples of
+                [] ->
+                    []
+
+                ( ( ( _, _, name ), _ ), _ ) :: _ ->
+                    let
+                        ( nameSamples, tail ) =
+                            snarfName name samples []
+                    in
+                    List.concat
+                        [ renderName nameSamples 0 []
+                        , [ br ]
+                        , renderNames tail
+                        ]
+
+        renderName nameSamples index res =
+            case nameSamples of
+                [] ->
+                    List.intersperse (text " ") <| List.reverse res
+
+                ( ( ( weapon, _, name ), ( distance, unit ) ), sample ) :: tail ->
+                    let
+                        elt =
+                            if index == 0 then
+                                text name
+
+                            else if index == 1 then
+                                text <|
+                                    String.fromInt distance
+                                        ++ " "
+                                        ++ unitToString (intToUnit unit)
+
+                            else
+                                text <| String.fromInt distance
+
+                        link =
+                            Html.button [ onClick <| SetSample sample ]
+                                [ elt ]
+                    in
+                    renderName tail (index + 1) <| link :: res
+
+        snarfName name samples res =
+            case samples of
+                [] ->
+                    ( List.reverse res, [] )
+
+                pair :: tail ->
+                    let
+                        ( ( ( _, _, n ), _ ), _ ) =
+                            pair
+                    in
+                    if n /= name then
+                        ( List.reverse res, samples )
+
+                    else
+                        snarfName name tail <| pair :: res
     in
     div [] <| renderWeapons (Dict.toList model.samples)
