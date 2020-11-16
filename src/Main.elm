@@ -143,6 +143,16 @@ type Unit
     | Yards
 
 
+unitToString : Unit -> String
+unitToString unit =
+    case unit of
+        Feet ->
+            "feet"
+
+        Yards ->
+            "yards"
+
+
 unitToInt : Unit -> Int
 unitToInt unit =
     case unit of
@@ -166,6 +176,19 @@ type Weapon
     = Rifle
     | Handgun
     | Shotgun
+
+
+weaponToString : Weapon -> String
+weaponToString weapon =
+    case weapon of
+        Rifle ->
+            "Rifle"
+
+        Handgun ->
+            "Handgun"
+
+        Shotgun ->
+            "Shotgun"
 
 
 weaponToInt : Weapon -> Int
@@ -204,15 +227,15 @@ type alias Sample =
     }
 
 
-sampleIndex : Sample -> ( ( Int, Float, Int ), ( String, Int ) )
+sampleIndex : Sample -> ( ( Int, Float, String ), ( Int, Int ) )
 sampleIndex { name, weapon, sort, distance, unit } =
-    ( ( weaponToInt weapon, sort, distance )
-    , ( name, unitToInt unit )
+    ( ( weaponToInt weapon, sort, name )
+    , ( distance, unitToInt unit )
     )
 
 
 type alias SampleDict =
-    Dict ( ( Int, Float, Int ), ( String, Int ) ) Sample
+    Dict ( ( Int, Float, String ), ( Int, Int ) ) Sample
 
 
 sn =
@@ -854,6 +877,7 @@ view model =
                 , td [ numberDisplay zeroDigits energy.efficacy ]
                 ]
             ]
+        , renderSamples model
         , p []
             [ a [ href "https://elm-lang.org" ]
                 [ text "Elm" ]
@@ -866,3 +890,57 @@ view model =
             ]
         ]
     }
+
+
+br : Html Msg
+br =
+    Html.br [] []
+
+
+renderSamples : Model -> Html Msg
+renderSamples model =
+    let
+        renderWeapons : List ( ( ( Int, Float, String ), ( Int, Int ) ), Sample ) -> List (Html Msg)
+        renderWeapons samples =
+            case samples of
+                [] ->
+                    []
+
+                ( ( ( weapon, sort, name ), ( distance, unit ) ), sample ) :: _ ->
+                    let
+                        ( names, tail ) =
+                            snarfWeapon weapon samples []
+                    in
+                    List.concat
+                        [ [ p [] <|
+                                List.append
+                                    [ b <| weaponToString <| intToWeapon weapon
+                                    , text ":"
+                                    , br
+                                    ]
+                                    (renderNames names)
+                          ]
+                        , renderWeapons tail
+                        ]
+
+        snarfWeapon weapon samples res =
+            case samples of
+                [] ->
+                    ( List.reverse res, [] )
+
+                pair :: tail ->
+                    let
+                        ( ( ( w, _, _ ), _ ), _ ) =
+                            pair
+                    in
+                    if w /= weapon then
+                        ( List.reverse res, samples )
+
+                    else
+                        snarfWeapon weapon tail <| pair :: res
+
+        -- Render the calibers for a single weapon
+        renderNames samples =
+            []
+    in
+    div [] <| renderWeapons (Dict.toList model.samples)
