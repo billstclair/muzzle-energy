@@ -143,6 +143,33 @@ type Unit
     | Yards
 
 
+encodeUnit : Unit -> Value
+encodeUnit unit =
+    case unit of
+        Feet ->
+            JE.string "Feet"
+
+        Yards ->
+            JE.string "Yards"
+
+
+unitDecoder : Decoder Unit
+unitDecoder =
+    JD.string
+        |> JD.andThen
+            (\s ->
+                case s of
+                    "Feet" ->
+                        JD.succeed Feet
+
+                    "Yards" ->
+                        JD.succeed Yards
+
+                    _ ->
+                        JD.fail <| "Not a Unit: " ++ s
+            )
+
+
 unitToString : Unit -> String
 unitToString unit =
     case unit of
@@ -227,6 +254,35 @@ type alias Sample =
     }
 
 
+type alias SampleDisplay =
+    { name : String
+    , unit : Unit
+    , distance : Int
+    }
+
+
+encodeSampleDisplay : SampleDisplay -> Value
+encodeSampleDisplay { name, unit, distance } =
+    JE.object
+        [ ( "name", JE.string name )
+        , ( "unit", encodeUnit unit )
+        , ( "distance", JE.int distance )
+        ]
+
+
+sampleDisplayDecoder : Decoder SampleDisplay
+sampleDisplayDecoder =
+    JD.succeed SampleDisplay
+        |> required "name" JD.string
+        |> required "unit" unitDecoder
+        |> required "distance" JD.int
+
+
+sampleToDisplay : Sample -> SampleDisplay
+sampleToDisplay { name, unit, distance } =
+    SampleDisplay name unit distance
+
+
 sampleIndex : Sample -> ( ( Int, Float, String ), ( Int, Int ) )
 sampleIndex { name, weapon, sort, distance, unit } =
     ( ( weaponToInt weapon, sort, name )
@@ -275,6 +331,21 @@ oneCaliberSamples name weapon sort unit grains diameter distanceAndFPSs =
         distanceAndFPSs
 
 
+sn308Samples : List Sample
+sn308Samples =
+    oneCaliberSamples sn.s308
+        Rifle
+        2
+        Yards
+        150
+        0.308
+        [ ( 0, 2820 )
+        , ( 100, 2533 )
+        , ( 200, 2263 )
+        , ( 300, 2009 )
+        ]
+
+
 initialSampleDict : SampleDict
 initialSampleDict =
     [ oneCaliberSamples sn.s223
@@ -299,17 +370,7 @@ initialSampleDict =
         , ( 200, 1783 )
         , ( 300, 1533 )
         ]
-    , oneCaliberSamples sn.s308
-        Rifle
-        2
-        Yards
-        150
-        0.308
-        [ ( 0, 2820 )
-        , ( 100, 2533 )
-        , ( 200, 2263 )
-        , ( 300, 2009 )
-        ]
+    , sn308Samples
     , oneCaliberSamples sn.s3006
         Rifle
         3
@@ -415,7 +476,7 @@ type alias Model =
     , energy : Energy
     , started : Started
     , samples : SampleDict
-    , sample : Maybe Sample
+    , sample : Maybe SampleDisplay
     }
 
 
@@ -451,17 +512,27 @@ init value url key =
 
         inputs =
             measurementsToInputs measurements
+
+        model =
+            { cmdPort =
+                PortFunnels.getCmdPort (\v -> Noop) "foo" False
+            , inputs = inputs
+            , measurements = measurements
+            , energy = Math.computeEnergy measurements
+            , started = NotStarted
+            , samples = initialSampleDict
+            , sample = Nothing
+            }
+
+        ( mdl, _ ) =
+            case List.head sn308Samples of
+                Nothing ->
+                    ( model, Cmd.none )
+
+                Just sample ->
+                    update (SetSample sample) model
     in
-    { cmdPort =
-        PortFunnels.getCmdPort (\v -> Noop) "foo" False
-    , inputs = inputs
-    , measurements = measurements
-    , energy = Math.computeEnergy measurements
-    , started = NotStarted
-    , samples = initialSampleDict
-    , sample = Nothing
-    }
-        |> withNoCmd
+    mdl |> withNoCmd
 
 
 subscriptions : Model -> Sub Msg
@@ -600,7 +671,7 @@ updateInternal msg model =
                 | measurements = measurements
                 , inputs = measurementsToInputs measurements
                 , energy = Math.computeEnergy measurements
-                , sample = Just sample
+                , sample = Just <| sampleToDisplay sample
             }
                 |> withNoCmd
 
@@ -708,6 +779,7 @@ storageHandler response state model =
 
 type alias SavedModel =
     { measurements : Measurements
+    , sample : Maybe SampleDisplay
     }
 
 
@@ -715,24 +787,37 @@ savedToModel : SavedModel -> Model -> Model
 savedToModel saved model =
     { model
         | measurements = saved.measurements
+        , sample = saved.sample
     }
 
 
 modelToSaved : Model -> SavedModel
 modelToSaved model =
-    { measurements = model.measurements }
+    { measurements = model.measurements
+    , sample = model.sample
+    }
 
 
 encodeSavedModel : SavedModel -> Value
-encodeSavedModel { measurements } =
+encodeSavedModel { measurements, sample } =
     JE.object
-        [ ( "measurements", Math.encodeMeasurements measurements ) ]
+        [ ( "measurements", Math.encodeMeasurements measurements )
+        , ( "sample"
+          , case sample of
+                Nothing ->
+                    JE.null
+
+                Just s ->
+                    encodeSampleDisplay s
+          )
+        ]
 
 
 savedModelDecoder : Decoder SavedModel
 savedModelDecoder =
     JD.succeed SavedModel
         |> required "measurements" Math.measurementsDecoder
+        |> optional "sample" (JD.nullable sampleDisplayDecoder) Nothing
 
 
 {-| Persistent storage keys
@@ -889,7 +974,7 @@ renderPage model =
             p []
                 [ text "unknown caliber and distance:" ]
 
-        Just { name, weapon, unit, distance } ->
+        Just { name, unit, distance } ->
             p []
                 [ text name
                 , text " at "
