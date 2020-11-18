@@ -500,6 +500,8 @@ type Msg
     | SetEditFeetPerSecond String
     | SetEditInches String
     | SetEditGauge String
+    | SetEditVelocity Sample String
+    | SetEditSample Sample
     | SetSample Sample
     | Process Value
     | SetDialog Dialog
@@ -695,6 +697,12 @@ updateInternal msg model =
             model |> withNoCmd
 
         SetEditGauge string ->
+            model |> withNoCmd
+
+        SetEditVelocity sample string ->
+            model |> withNoCmd
+
+        SetEditSample sample ->
             model |> withNoCmd
 
         SetSample sample ->
@@ -1049,7 +1057,7 @@ renderPage model =
             model.energy
     in
     [ h2 [] [ text "Muzzle Energy" ]
-    , renderSampleDisplay model.sample "unknown caliber and distance."
+    , renderSampleDisplay True model.sample "unknown caliber and distance."
     , table [] <|
         List.concat
             [ inputRows True liveSetters inputs
@@ -1067,7 +1075,7 @@ renderPage model =
     , p []
         [ text "The top three rows above are active. Change any number and everything dependent on it will be recomputed. Click a button below to fill in values for the linked load."
         ]
-    , renderSamples model
+    , renderSamples Nothing SetSample model
     , p []
         [ button (SetDialog EditDialog) "Edit" ]
     , p []
@@ -1090,8 +1098,8 @@ renderPage model =
     ]
 
 
-renderSampleDisplay : Maybe SampleDisplay -> String -> Html Msg
-renderSampleDisplay sample unknown =
+renderSampleDisplay : Bool -> Maybe SampleDisplay -> String -> Html Msg
+renderSampleDisplay showDistance sample unknown =
     case sample of
         Nothing ->
             p []
@@ -1100,15 +1108,21 @@ renderSampleDisplay sample unknown =
         Just { name, unit, distance } ->
             p []
                 [ text name
-                , text " at "
-                , if distance == 0 then
-                    text "muzzle"
+                , if not showDistance then
+                    text ""
 
                   else
                     span []
-                        [ text <| String.fromInt distance
-                        , text " "
-                        , text <| unitToString unit
+                        [ text " at "
+                        , if distance == 0 then
+                            text "muzzle"
+
+                          else
+                            span []
+                                [ text <| String.fromInt distance
+                                , text " "
+                                , text <| unitToString unit
+                                ]
                         ]
                 , text ":"
                 ]
@@ -1168,9 +1182,17 @@ br =
     Html.br [] []
 
 
-renderSamples : Model -> Html Msg
-renderSamples model =
+renderSamples : Maybe SampleDisplay -> (Sample -> Msg) -> Model -> Html Msg
+renderSamples selectedSample wrapper model =
     let
+        selected =
+            case selectedSample of
+                Nothing ->
+                    Nothing
+
+                Just sel ->
+                    Just { sel | distance = 0 }
+
         renderWeapons : List Sample -> List (Html Msg)
         renderWeapons samples =
             case samples of
@@ -1233,27 +1255,71 @@ renderSamples model =
 
                 sample :: tail ->
                     let
-                        { name, unit, distance } =
+                        { name, unit, distance, measurements } =
                             sample
 
-                        elt =
-                            if index == 0 then
-                                text name
-
-                            else if index == 1 then
-                                text <|
-                                    String.fromInt distance
-                                        ++ " "
-                                        ++ unitToString unit
-
-                            else
-                                text <| String.fromInt distance
-
-                        link =
-                            Html.button [ onClick <| SetSample sample ]
-                                [ elt ]
+                        sampleDisplay =
+                            sampleToDisplay sample
                     in
-                    renderName tail (index + 1) <| link :: res
+                    if Just { sampleDisplay | distance = 0 } == selected then
+                        let
+                            fps =
+                                digitsFormat zeroDigits measurements.feetPerSecond
+
+                            inp =
+                                numberInput (SetEditVelocity sample) fps
+
+                            elt =
+                                if index == 0 then
+                                    span []
+                                        [ text name
+                                        , text " muzzle: "
+                                        , inp
+                                        , text " "
+                                        ]
+
+                                else if index == 1 then
+                                    span []
+                                        [ text <|
+                                            String.fromInt distance
+                                                ++ " "
+                                                ++ unitToString unit
+                                                ++ ": "
+                                        , inp
+                                        , text " "
+                                        ]
+
+                                else
+                                    span []
+                                        [ text <|
+                                            String.fromInt distance
+                                                ++ ": "
+                                        , inp
+                                        , text " "
+                                        ]
+                        in
+                        renderName tail (index + 1) <| elt :: res
+
+                    else
+                        let
+                            elt =
+                                if index == 0 then
+                                    text name
+
+                                else if index == 1 then
+                                    text <|
+                                        String.fromInt distance
+                                            ++ " "
+                                            ++ unitToString unit
+
+                                else
+                                    text <| String.fromInt distance
+
+                            link =
+                                Html.button [ onClick <| wrapper sample ]
+                                    [ elt ]
+                        in
+                        renderName tail (index + 1) <| link :: res
 
         snarfName name samples res =
             case samples of
@@ -1325,9 +1391,10 @@ editDialog model =
 
 editDialogContent : Model -> List (Html Msg)
 editDialogContent model =
-    [ renderSampleDisplay model.editSample "No caliber selected."
+    [ renderSampleDisplay False model.editSample "No caliber selected."
     , table [] <|
         inputRows False liveSetters model.editInputs
+    , renderSamples model.editSample SetEditSample model
     ]
 
 
