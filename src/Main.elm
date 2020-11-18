@@ -17,6 +17,7 @@ import Browser.Dom as Dom exposing (Viewport)
 import Browser.Events as Events
 import Browser.Navigation as Navigation exposing (Key)
 import Cmd.Extra exposing (addCmd, withCmd, withCmds, withNoCmd)
+import Dialog
 import Dict exposing (Dict)
 import Energy.Math as Math exposing (Energy, Measurements)
 import FormatNumber exposing (format)
@@ -143,31 +144,28 @@ type Unit
     | Yards
 
 
+encodeWeapon : Weapon -> Value
+encodeWeapon weapon =
+    JE.string <| weaponToString weapon
+
+
+weaponDecoder : Decoder Weapon
+weaponDecoder =
+    JD.string
+        |> JD.andThen
+            (\string -> JD.succeed <| stringToWeapon string)
+
+
 encodeUnit : Unit -> Value
 encodeUnit unit =
-    case unit of
-        Feet ->
-            JE.string "Feet"
-
-        Yards ->
-            JE.string "Yards"
+    JE.string <| unitToString unit
 
 
 unitDecoder : Decoder Unit
 unitDecoder =
     JD.string
         |> JD.andThen
-            (\s ->
-                case s of
-                    "Feet" ->
-                        JD.succeed Feet
-
-                    "Yards" ->
-                        JD.succeed Yards
-
-                    _ ->
-                        JD.fail <| "Not a Unit: " ++ s
-            )
+            (\s -> JD.succeed <| stringToUnit s)
 
 
 unitToString : Unit -> String
@@ -180,19 +178,9 @@ unitToString unit =
             "yards"
 
 
-unitToInt : Unit -> Int
-unitToInt unit =
-    case unit of
-        Feet ->
-            1
-
-        Yards ->
-            0
-
-
-intToUnit : Int -> Unit
-intToUnit int =
-    if int == 1 then
+stringToUnit : String -> Unit
+stringToUnit string =
+    if string == "feet" then
         Feet
 
     else
@@ -231,17 +219,16 @@ weaponToInt weapon =
             2
 
 
-intToWeapon : Int -> Weapon
-intToWeapon int =
-    case int of
-        2 ->
-            Shotgun
+stringToWeapon : String -> Weapon
+stringToWeapon string =
+    if string == "Handgun" then
+        Handgun
 
-        1 ->
-            Handgun
+    else if string == "Shotgun" then
+        Shotgun
 
-        _ ->
-            Rifle
+    else
+        Rifle
 
 
 type alias Sample =
@@ -256,15 +243,28 @@ type alias Sample =
 
 type alias SampleDisplay =
     { name : String
+    , weapon : Weapon
+    , sort : Float
     , unit : Unit
     , distance : Int
     }
 
 
+sampleToDisplay : Sample -> SampleDisplay
+sampleToDisplay { name, weapon, sort, unit, distance } =
+    SampleDisplay name weapon sort unit distance
+
+
+type alias SampleKey =
+    ( ( Int, Float, String ), ( String, Int ) )
+
+
 encodeSampleDisplay : SampleDisplay -> Value
-encodeSampleDisplay { name, unit, distance } =
+encodeSampleDisplay { name, weapon, sort, unit, distance } =
     JE.object
         [ ( "name", JE.string name )
+        , ( "weapon", encodeWeapon weapon )
+        , ( "sort", JE.float sort )
         , ( "unit", encodeUnit unit )
         , ( "distance", JE.int distance )
         ]
@@ -274,24 +274,19 @@ sampleDisplayDecoder : Decoder SampleDisplay
 sampleDisplayDecoder =
     JD.succeed SampleDisplay
         |> required "name" JD.string
+        |> required "weapon" weaponDecoder
+        |> required "sort" JD.float
         |> required "unit" unitDecoder
         |> required "distance" JD.int
 
 
-sampleToDisplay : Sample -> SampleDisplay
-sampleToDisplay { name, unit, distance } =
-    SampleDisplay name unit distance
-
-
-sampleIndex : Sample -> ( ( Int, Float, String ), ( Int, Int ) )
-sampleIndex { name, weapon, sort, distance, unit } =
-    ( ( weaponToInt weapon, sort, name )
-    , ( distance, unitToInt unit )
-    )
+sampleToKey : Sample -> SampleKey
+sampleToKey { name, weapon, sort, unit, distance } =
+    ( ( weaponToInt weapon, sort, name ), ( unitToString unit, distance ) )
 
 
 type alias SampleDict =
-    Dict ( ( Int, Float, String ), ( Int, Int ) ) Sample
+    Dict SampleKey Sample
 
 
 sn =
@@ -465,19 +460,30 @@ initialSampleDict =
         ]
     ]
         |> List.concat
-        |> List.map (\s -> ( sampleIndex s, s ))
+        |> List.map (\s -> ( sampleToKey s, s ))
         |> Dict.fromList
 
 
 type alias Model =
     { cmdPort : Value -> Cmd Msg
+    , dialog : Dialog
     , inputs : Inputs
     , measurements : Measurements
     , energy : Energy
     , started : Started
     , samples : SampleDict
     , sample : Maybe SampleDisplay
+    , editSamples : SampleDict
+    , editSample : Maybe Sample
+    , editInputs : Inputs
+    , newEditWeapon : Weapon
+    , newEditName : String
     }
+
+
+type Dialog
+    = NoDialog
+    | EditDialog
 
 
 type Msg
@@ -491,6 +497,9 @@ type Msg
     | SetGauge String
     | SetSample Sample
     | Process Value
+    | SetDialog Dialog
+    | DismissDialog
+    | CommitEditDialog
 
 
 main =
@@ -516,12 +525,18 @@ init value url key =
         model =
             { cmdPort =
                 PortFunnels.getCmdPort (\v -> Noop) "foo" False
+            , dialog = NoDialog
             , inputs = inputs
             , measurements = measurements
             , energy = Math.computeEnergy measurements
             , started = NotStarted
             , samples = initialSampleDict
             , sample = Nothing
+            , editSamples = Dict.empty
+            , editSample = Nothing
+            , editInputs = measurementsToInputs emptyMeasurements
+            , newEditWeapon = Rifle
+            , newEditName = ""
             }
 
         ( mdl, _ ) =
@@ -703,6 +718,23 @@ updateInternal msg model =
                                 }
                     in
                     mdl2 |> withCmd cmd
+
+        SetDialog dialog ->
+            { model | dialog = dialog }
+                |> withNoCmd
+
+        DismissDialog ->
+            { model | dialog = NoDialog }
+                |> withNoCmd
+
+        CommitEditDialog ->
+            commitEditDialog model
+
+
+commitEditDialog : Model -> ( Model, Cmd Msg )
+commitEditDialog model =
+    { model | dialog = NoDialog }
+        |> withNoCmd
 
 
 funnelDict : FunnelDict Model Msg
@@ -949,11 +981,27 @@ threeDigits =
     Locales.Exact 3
 
 
+renderDialog : Model -> Html Msg
+renderDialog model =
+    case model.dialog of
+        NoDialog ->
+            text ""
+
+        EditDialog ->
+            editDialog model
+
+
 view : Model -> Document Msg
 view model =
     { title = "Muzzle Energy"
     , body =
-        [ div [ style "width" "40em" ] <|
+        [ renderDialog model
+        , div
+            [ style "width" "40em"
+            , style "max-width" "95%"
+            , style "padding" "1em"
+            ]
+          <|
             renderPage model
         ]
     }
@@ -1011,7 +1059,7 @@ renderPage model =
             , td
                 [ numberInput SetGauge inputs.gauge ]
             ]
-        , tr [ td [ text "." ] ]
+        , tr [ td [ text special.nbsp ] ]
         , tr
             [ td [ b "Energy: " ]
             , td [ numberDisplay zeroDigits energy.footPounds ]
@@ -1026,8 +1074,10 @@ renderPage model =
         ]
     , renderSamples model
     , p []
+        [ button (SetDialog EditDialog) "Edit" ]
+    , p []
         [ b "Efficacy"
-        , text "is a measure proposed by "
+        , text " is a measure proposed by "
         , a [ href "http://lneilsmith.org/" ]
             [ text "L. Neil Smith" ]
         , text ". It is defined as energy in foot pounds multiplied by projectile cross-sectional area in square inches. Neil says that this is a pretty good indicator of the relative efficacy against live targets of different projectiles and loads. In an email about this page, Neil wrote, \"I'm not absolutely certain of its applicability to rifles (although it looks pretty good and is fine for slugs and rifles like .45/70). There are other factors at work above 2000-2500 feet per second. But every year that passes convinces me more that this is the perfect program for predicting handgun performance.\""
@@ -1053,13 +1103,13 @@ br =
 renderSamples : Model -> Html Msg
 renderSamples model =
     let
-        renderWeapons : List ( ( ( Int, Float, String ), ( Int, Int ) ), Sample ) -> List (Html Msg)
+        renderWeapons : List Sample -> List (Html Msg)
         renderWeapons samples =
             case samples of
                 [] ->
                     []
 
-                ( ( ( weapon, sort, name ), ( distance, unit ) ), sample ) :: _ ->
+                { weapon, name, distance } :: _ ->
                     let
                         ( names, tail ) =
                             snarfWeapon weapon samples []
@@ -1067,7 +1117,7 @@ renderSamples model =
                     List.concat
                         [ [ p [] <|
                                 List.append
-                                    [ b <| weaponToString <| intToWeapon weapon
+                                    [ b <| weaponToString weapon
                                     , text ":"
                                     , br
                                     ]
@@ -1076,29 +1126,27 @@ renderSamples model =
                         , renderWeapons tail
                         ]
 
+        snarfWeapon : Weapon -> List Sample -> List Sample -> ( List Sample, List Sample )
         snarfWeapon weapon samples res =
             case samples of
                 [] ->
                     ( List.reverse res, [] )
 
-                pair :: tail ->
-                    let
-                        ( ( ( w, _, _ ), _ ), _ ) =
-                            pair
-                    in
-                    if w /= weapon then
+                sample :: tail ->
+                    if sample.weapon /= weapon then
                         ( List.reverse res, samples )
 
                     else
-                        snarfWeapon weapon tail <| pair :: res
+                        snarfWeapon weapon tail <| sample :: res
 
         -- Render the calibers for a single weapon
+        renderNames : List Sample -> List (Html Msg)
         renderNames samples =
             case samples of
                 [] ->
                     []
 
-                ( ( ( _, _, name ), _ ), _ ) :: _ ->
+                { name } :: _ ->
                     let
                         ( nameSamples, tail ) =
                             snarfName name samples []
@@ -1109,13 +1157,17 @@ renderSamples model =
                         , renderNames tail
                         ]
 
+        renderName : List Sample -> Int -> List (Html Msg) -> List (Html Msg)
         renderName nameSamples index res =
             case nameSamples of
                 [] ->
                     List.intersperse (text " ") <| List.reverse res
 
-                ( ( ( weapon, _, name ), ( distance, unit ) ), sample ) :: tail ->
+                sample :: tail ->
                     let
+                        { name, unit, distance } =
+                            sample
+
                         elt =
                             if index == 0 then
                                 text name
@@ -1124,7 +1176,7 @@ renderSamples model =
                                 text <|
                                     String.fromInt distance
                                         ++ " "
-                                        ++ unitToString (intToUnit unit)
+                                        ++ unitToString unit
 
                             else
                                 text <| String.fromInt distance
@@ -1140,15 +1192,87 @@ renderSamples model =
                 [] ->
                     ( List.reverse res, [] )
 
-                pair :: tail ->
-                    let
-                        ( ( ( _, _, n ), _ ), _ ) =
-                            pair
-                    in
-                    if n /= name then
+                sample :: tail ->
+                    if sample.name /= name then
                         ( List.reverse res, samples )
 
                     else
-                        snarfName name tail <| pair :: res
+                        snarfName name tail <| sample :: res
     in
-    div [] <| renderWeapons (Dict.toList model.samples)
+    div [] <|
+        renderWeapons
+            (Dict.toList model.samples
+                |> List.map Tuple.second
+            )
+
+
+
+---
+--- Buttons
+---
+
+
+titledButton : String -> Bool -> Msg -> String -> Html Msg
+titledButton theTitle enabled msg label =
+    Html.button
+        [ onClick msg
+        , disabled <| not enabled
+        , title theTitle
+        ]
+        [ b label ]
+
+
+enabledButton : Bool -> Msg -> String -> Html Msg
+enabledButton =
+    titledButton ""
+
+
+button : Msg -> String -> Html Msg
+button =
+    enabledButton True
+
+
+
+---
+--- Dialogs
+---
+
+
+editDialog : Model -> Html Msg
+editDialog model =
+    Dialog.render
+        { styles = []
+        , title = "Edit"
+        , content = editDialogContent model
+        , actionBar =
+            [ button CommitEditDialog "Save"
+            , button DismissDialog "Cancel"
+            ]
+        }
+        True
+
+
+editDialogContent : Model -> List (Html Msg)
+editDialogContent model =
+    [ text "" ]
+
+
+
+---
+--- Special characters
+---
+
+
+stringFromCode : Int -> String
+stringFromCode code =
+    String.fromList [ Char.fromCode code ]
+
+
+special =
+    { nbsp = stringFromCode 160 -- \u00A0
+    , copyright = stringFromCode 169 -- \u00A9
+    , biohazard = stringFromCode 9763 -- \u2623
+    , black_star = stringFromCode 10036 -- \u2734
+    , hourglass = stringFromCode 8987 -- \u231B
+    , hourglass_flowing = stringFromCode 9203 -- \u23F3
+    }
