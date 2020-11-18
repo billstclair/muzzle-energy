@@ -474,7 +474,7 @@ type alias Model =
     , samples : SampleDict
     , sample : Maybe SampleDisplay
     , editSamples : SampleDict
-    , editSample : Maybe Sample
+    , editSample : Maybe SampleDisplay
     , editInputs : Inputs
     , newEditWeapon : Weapon
     , newEditName : String
@@ -495,6 +495,11 @@ type Msg
     | SetFeetPerSecond String
     | SetInches String
     | SetGauge String
+    | SetEditGrains String
+    | SetEditOunces String
+    | SetEditFeetPerSecond String
+    | SetEditInches String
+    | SetEditGauge String
     | SetSample Sample
     | Process Value
     | SetDialog Dialog
@@ -677,6 +682,21 @@ updateInternal msg model =
                 }
                 |> withNoCmd
 
+        SetEditGrains string ->
+            model |> withNoCmd
+
+        SetEditOunces string ->
+            model |> withNoCmd
+
+        SetEditFeetPerSecond string ->
+            model |> withNoCmd
+
+        SetEditInches string ->
+            model |> withNoCmd
+
+        SetEditGauge string ->
+            model |> withNoCmd
+
         SetSample sample ->
             let
                 measurements =
@@ -720,7 +740,20 @@ updateInternal msg model =
                     mdl2 |> withCmd cmd
 
         SetDialog dialog ->
-            { model | dialog = dialog }
+            let
+                mdl =
+                    case dialog of
+                        EditDialog ->
+                            { model
+                                | editSamples = model.samples
+                                , editSample = model.sample
+                                , editInputs = model.inputs
+                            }
+
+                        _ ->
+                            model
+            in
+            { mdl | dialog = dialog }
                 |> withNoCmd
 
         DismissDialog ->
@@ -728,13 +761,12 @@ updateInternal msg model =
                 |> withNoCmd
 
         CommitEditDialog ->
-            commitEditDialog model
-
-
-commitEditDialog : Model -> ( Model, Cmd Msg )
-commitEditDialog model =
-    { model | dialog = NoDialog }
-        |> withNoCmd
+            { model
+                | dialog = NoDialog
+                , samples = model.editSamples
+                , sample = model.editSample
+            }
+                |> withNoCmd
 
 
 funnelDict : FunnelDict Model Msg
@@ -1017,58 +1049,21 @@ renderPage model =
             model.energy
     in
     [ h2 [] [ text "Muzzle Energy" ]
-    , case model.sample of
-        Nothing ->
-            p []
-                [ text "unknown caliber and distance:" ]
-
-        Just { name, unit, distance } ->
-            p []
-                [ text name
-                , text " at "
-                , if distance == 0 then
-                    text "muzzle"
-
-                  else
-                    span []
-                        [ text <| String.fromInt distance
-                        , text " "
-                        , text <| unitToString unit
-                        ]
-                , text ":"
-                ]
-    , table []
-        [ tr
-            [ td [ b "Bullet Weight (grains): " ]
-            , td
-                [ numberInput SetGrains inputs.grains ]
-            , td [ b "(ounces): " ]
-            , td
-                [ numberInput SetOunces inputs.ounces ]
+    , renderSampleDisplay model.sample "unknown caliber and distance."
+    , table [] <|
+        List.concat
+            [ inputRows True liveSetters inputs
+            , [ tr [ td [ text special.nbsp ] ]
+              , tr
+                    [ td [ b "Energy: " ]
+                    , td [ numberDisplay zeroDigits energy.footPounds ]
+                    ]
+              , tr
+                    [ td [ b "Efficacy (energy x area): " ]
+                    , td [ numberDisplay zeroDigits energy.efficacy ]
+                    ]
+              ]
             ]
-        , tr
-            [ td [ b "Velocity (feet/second): " ]
-            , td
-                [ numberInput SetFeetPerSecond inputs.fps ]
-            ]
-        , tr
-            [ td [ b "Bullet diameter (inches): " ]
-            , td
-                [ numberInput SetInches inputs.inches ]
-            , td [ b "(gauge): " ]
-            , td
-                [ numberInput SetGauge inputs.gauge ]
-            ]
-        , tr [ td [ text special.nbsp ] ]
-        , tr
-            [ td [ b "Energy: " ]
-            , td [ numberDisplay zeroDigits energy.footPounds ]
-            ]
-        , tr
-            [ td [ b "Efficacy (energy x area): " ]
-            , td [ numberDisplay zeroDigits energy.efficacy ]
-            ]
-        ]
     , p []
         [ text "The top three rows above are active. Change any number and everything dependent on it will be recomputed. Click a button below to fill in values for the linked load."
         ]
@@ -1091,6 +1086,79 @@ renderPage model =
         , text " "
         , a [ href "old/" ]
             [ text "Old" ]
+        ]
+    ]
+
+
+renderSampleDisplay : Maybe SampleDisplay -> String -> Html Msg
+renderSampleDisplay sample unknown =
+    case sample of
+        Nothing ->
+            p []
+                [ text unknown ]
+
+        Just { name, unit, distance } ->
+            p []
+                [ text name
+                , text " at "
+                , if distance == 0 then
+                    text "muzzle"
+
+                  else
+                    span []
+                        [ text <| String.fromInt distance
+                        , text " "
+                        , text <| unitToString unit
+                        ]
+                , text ":"
+                ]
+
+
+type alias Setters =
+    { grains : String -> Msg
+    , ounces : String -> Msg
+    , feetPerSecond : String -> Msg
+    , inches : String -> Msg
+    , gauge : String -> Msg
+    }
+
+
+liveSetters : Setters
+liveSetters =
+    { grains = SetGrains
+    , ounces = SetOunces
+    , feetPerSecond = SetFeetPerSecond
+    , inches = SetInches
+    , gauge = SetGauge
+    }
+
+
+inputRows : Bool -> Setters -> Inputs -> List (Html Msg)
+inputRows showVelocity setters inputs =
+    [ tr
+        [ td [ b "Bullet Weight (grains): " ]
+        , td
+            [ numberInput setters.grains inputs.grains ]
+        , td [ b "(ounces): " ]
+        , td
+            [ numberInput setters.ounces inputs.ounces ]
+        ]
+    , if not showVelocity then
+        text ""
+
+      else
+        tr
+            [ td [ b "Velocity (feet/second): " ]
+            , td
+                [ numberInput setters.feetPerSecond inputs.fps ]
+            ]
+    , tr
+        [ td [ b "Bullet diameter (inches): " ]
+        , td
+            [ numberInput setters.inches inputs.inches ]
+        , td [ b "(gauge): " ]
+        , td
+            [ numberInput setters.gauge inputs.gauge ]
         ]
     ]
 
@@ -1200,10 +1268,13 @@ renderSamples model =
                         snarfName name tail <| sample :: res
     in
     div [] <|
-        renderWeapons
-            (Dict.toList model.samples
-                |> List.map Tuple.second
-            )
+        renderWeapons (dictToSamples model.samples)
+
+
+dictToSamples : SampleDict -> List Sample
+dictToSamples dict =
+    Dict.toList dict
+        |> List.map Tuple.second
 
 
 
@@ -1254,7 +1325,10 @@ editDialog model =
 
 editDialogContent : Model -> List (Html Msg)
 editDialogContent model =
-    [ text "" ]
+    [ renderSampleDisplay model.editSample "No caliber selected."
+    , table [] <|
+        inputRows False liveSetters model.editInputs
+    ]
 
 
 
