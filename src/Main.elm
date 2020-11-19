@@ -500,6 +500,7 @@ type Msg
     | SetEditFeetPerSecond String
     | SetEditInches String
     | SetEditGauge String
+    | DeleteEditSample Sample
     | SetEditVelocity Sample String
     | SetEditSort Sample String
     | SetEditSample Sample
@@ -698,6 +699,9 @@ updateInternal msg model =
             model |> withNoCmd
 
         SetEditGauge string ->
+            model |> withNoCmd
+
+        DeleteEditSample sample ->
             model |> withNoCmd
 
         SetEditVelocity sample string ->
@@ -1274,6 +1278,13 @@ renderSamples showSort selectedSample wrapper model =
                         sampleDisplay =
                             sampleToDisplay sample
 
+                        x =
+                            Html.button
+                                [ onClick <| DeleteEditSample sample
+                                , title "Delete this load."
+                                ]
+                                [ text "x" ]
+
                         sortStr =
                             digitsFormat oneDigit sort
                     in
@@ -1294,6 +1305,8 @@ renderSamples showSort selectedSample wrapper model =
                                                     (SetEditSort sample)
                                                     sortStr
                                                 , text ": "
+                                                , x
+                                                , text " "
                                                 ]
 
                                           else
@@ -1344,7 +1357,11 @@ renderSamples showSort selectedSample wrapper model =
                             link =
                                 span []
                                     [ if index == 0 && showSort then
-                                        text <| sortStr ++ ": "
+                                        span []
+                                            [ text <| sortStr ++ ": "
+                                            , x
+                                            , text " "
+                                            ]
 
                                       else
                                         text ""
