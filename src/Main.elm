@@ -75,6 +75,7 @@ import Html.Events exposing (keyCode, on, onCheck, onClick, onInput, onMouseDown
 import Json.Decode as JD exposing (Decoder)
 import Json.Decode.Pipeline as DP exposing (custom, hardcoded, optional, required)
 import Json.Encode as JE exposing (Value)
+import List.Extra as LE
 import PortFunnel.LocalStorage as LocalStorage
     exposing
         ( Message
@@ -687,7 +688,26 @@ updateInternal msg model =
                 |> withNoCmd
 
         SetEditGrains string ->
-            model |> withNoCmd
+            let
+                mdl =
+                    case String.toFloat string of
+                        Nothing ->
+                            model
+
+                        Just grains ->
+                            updateSamples False
+                                (\sample ->
+                                    Debug.log "  sample:" <|
+                                        updateSampleMeasurements
+                                            (\meas ->
+                                                { meas | grains = grains }
+                                                    |> Math.grainsToOunces
+                                            )
+                                            sample
+                                )
+                                model
+            in
+            mdl |> withNoCmd
 
         SetEditOunces string ->
             model |> withNoCmd
@@ -777,12 +797,96 @@ updateInternal msg model =
                 |> withNoCmd
 
         CommitEditDialog ->
+            let
+                inputs2 =
+                    case model.editSample of
+                        Nothing ->
+                            model.inputs
+
+                        Just editSample ->
+                            let
+                                samp2 =
+                                    { editSample | sort = 0 }
+                            in
+                            case
+                                LE.find (sampleMatches True samp2) <|
+                                    Dict.toList model.editSamples
+                            of
+                                Nothing ->
+                                    model.inputs
+
+                                Just ( _, sample ) ->
+                                    measurementsToInputs sample.measurements
+            in
             { model
                 | dialog = NoDialog
                 , samples = model.editSamples
                 , sample = model.editSample
+                , inputs = inputs2
             }
                 |> withNoCmd
+
+
+updateSampleMeasurements : (Measurements -> Measurements) -> Sample -> Sample
+updateSampleMeasurements updater sample =
+    { sample | measurements = updater sample.measurements }
+
+
+updateSamples : Bool -> (Sample -> Sample) -> Model -> Model
+updateSamples matchDistance modfun model =
+    case model.editSample of
+        Nothing ->
+            model
+
+        Just sampleDisplay ->
+            let
+                dist =
+                    { sampleDisplay
+                        | sort = 0
+                        , distance =
+                            if matchDistance then
+                                sampleDisplay.distance
+
+                            else
+                                -1
+                    }
+
+                newSamples =
+                    LE.updateIf (sampleMatches matchDistance dist)
+                        (\( key, sample ) -> ( key, modfun sample ))
+                    <|
+                        Dict.toList model.editSamples
+
+                exactDist =
+                    { sampleDisplay | sort = 0 }
+
+                editInputs =
+                    case LE.find (sampleMatches True exactDist) newSamples of
+                        Nothing ->
+                            model.editInputs
+
+                        Just ( _, es ) ->
+                            measurementsToInputs es.measurements
+            in
+            { model
+                | editSamples = Dict.fromList newSamples
+                , editInputs = editInputs
+            }
+
+
+sampleMatches : Bool -> SampleDisplay -> ( key, Sample ) -> Bool
+sampleMatches matchDistance display ( _, sample ) =
+    display
+        == sampleToDisplay
+            { sample
+                | sort = 0
+                , distance =
+                    if matchDistance then
+                        sample.distance
+
+                    else
+                        -1
+            }
 
 
 funnelDict : FunnelDict Model Msg
@@ -1164,6 +1268,16 @@ liveSetters =
     }
 
 
+editSetters : Setters
+editSetters =
+    { grains = SetEditGrains
+    , ounces = SetEditOunces
+    , feetPerSecond = SetEditFeetPerSecond
+    , inches = SetEditInches
+    , gauge = SetEditGauge
+    }
+
+
 inputRows : Bool -> Setters -> Inputs -> List (Html Msg)
 inputRows showVelocity setters inputs =
     [ tr
@@ -1447,7 +1561,7 @@ editDialogContent : Model -> List (Html Msg)
 editDialogContent model =
     [ renderSampleDisplay False model.editSample "No caliber selected."
     , table [] <|
-        inputRows False liveSetters model.editInputs
+        inputRows False editSetters model.editInputs
     , renderSamples True model.editSample SetEditSample model
     ]
 
