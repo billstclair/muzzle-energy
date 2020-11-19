@@ -501,6 +501,7 @@ type Msg
     | SetEditInches String
     | SetEditGauge String
     | SetEditVelocity Sample String
+    | SetEditSort Sample String
     | SetEditSample Sample
     | SetSample Sample
     | Process Value
@@ -700,6 +701,9 @@ updateInternal msg model =
             model |> withNoCmd
 
         SetEditVelocity sample string ->
+            model |> withNoCmd
+
+        SetEditSort sample string ->
             model |> withNoCmd
 
         SetEditSample sample ->
@@ -990,14 +994,19 @@ b s =
     Html.b [] [ text s ]
 
 
-numberInput : (String -> Msg) -> String -> Html Msg
-numberInput wrapper v =
+numberInputWithWidth : String -> (String -> Msg) -> String -> Html Msg
+numberInputWithWidth width wrapper v =
     input
-        [ style "width" "5em"
+        [ style "width" width
         , onInput wrapper
         , value v
         ]
         []
+
+
+numberInput : (String -> Msg) -> String -> Html Msg
+numberInput =
+    numberInputWithWidth "5em"
 
 
 numberDisplay : Decimals -> Float -> Html Msg
@@ -1015,6 +1024,10 @@ numberDisplay decimals v =
 
 zeroDigits =
     Locales.Exact 0
+
+
+oneDigit =
+    Locales.Exact 1
 
 
 threeDigits =
@@ -1075,7 +1088,7 @@ renderPage model =
     , p []
         [ text "The top three rows above are active. Change any number and everything dependent on it will be recomputed. Click a button below to fill in values for the linked load."
         ]
-    , renderSamples Nothing SetSample model
+    , renderSamples False Nothing SetSample model
     , p []
         [ button (SetDialog EditDialog) "Edit" ]
     , p []
@@ -1182,8 +1195,8 @@ br =
     Html.br [] []
 
 
-renderSamples : Maybe SampleDisplay -> (Sample -> Msg) -> Model -> Html Msg
-renderSamples selectedSample wrapper model =
+renderSamples : Bool -> Maybe SampleDisplay -> (Sample -> Msg) -> Model -> Html Msg
+renderSamples showSort selectedSample wrapper model =
     let
         selected =
             case selectedSample of
@@ -1255,11 +1268,14 @@ renderSamples selectedSample wrapper model =
 
                 sample :: tail ->
                     let
-                        { name, unit, distance, measurements } =
+                        { name, sort, unit, distance, measurements } =
                             sample
 
                         sampleDisplay =
                             sampleToDisplay sample
+
+                        sortStr =
+                            digitsFormat oneDigit sort
                     in
                     if Just { sampleDisplay | distance = 0 } == selected then
                         let
@@ -1272,8 +1288,18 @@ renderSamples selectedSample wrapper model =
                             elt =
                                 if index == 0 then
                                     span []
-                                        [ text name
-                                        , text " muzzle: "
+                                        [ if showSort then
+                                            span []
+                                                [ numberInputWithWidth "2em"
+                                                    (SetEditSort sample)
+                                                    sortStr
+                                                , text ": "
+                                                ]
+
+                                          else
+                                            text ""
+                                        , text name
+                                        , text ", muzzle: "
                                         , inp
                                         , text " "
                                         ]
@@ -1316,8 +1342,15 @@ renderSamples selectedSample wrapper model =
                                     text <| String.fromInt distance
 
                             link =
-                                Html.button [ onClick <| wrapper sample ]
-                                    [ elt ]
+                                span []
+                                    [ if index == 0 && showSort then
+                                        text <| sortStr ++ ": "
+
+                                      else
+                                        text ""
+                                    , Html.button [ onClick <| wrapper sample ]
+                                        [ elt ]
+                                    ]
                         in
                         renderName tail (index + 1) <| link :: res
 
@@ -1378,7 +1411,11 @@ button =
 editDialog : Model -> Html Msg
 editDialog model =
     Dialog.render
-        { styles = []
+        { styles =
+            [ ( "max-width", "95%" )
+            , ( "max-height", "90%" )
+            , ( "overflow", "auto" )
+            ]
         , title = "Edit"
         , content = editDialogContent model
         , actionBar =
@@ -1394,7 +1431,7 @@ editDialogContent model =
     [ renderSampleDisplay False model.editSample "No caliber selected."
     , table [] <|
         inputRows False liveSetters model.editInputs
-    , renderSamples model.editSample SetEditSample model
+    , renderSamples True model.editSample SetEditSample model
     ]
 
 
