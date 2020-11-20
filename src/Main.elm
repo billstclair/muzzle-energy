@@ -688,41 +688,66 @@ updateInternal msg model =
                 |> withNoCmd
 
         SetEditGrains string ->
-            let
-                mdl =
-                    case String.toFloat string of
-                        Nothing ->
-                            model
-
-                        Just grains ->
-                            updateSamples False
-                                (\sample ->
-                                    Debug.log "  sample:" <|
-                                        updateSampleMeasurements
-                                            (\meas ->
-                                                { meas | grains = grains }
-                                                    |> Math.grainsToOunces
-                                            )
-                                            sample
-                                )
-                                model
-            in
-            mdl |> withNoCmd
+            updateMeasurementsInput True
+                (\grains measurements ->
+                    { measurements | grains = grains }
+                        |> Math.grainsToOunces
+                )
+                (\grains inps -> { inps | grains = grains })
+                string
+                model
+                |> withNoCmd
 
         SetEditOunces string ->
-            model |> withNoCmd
+            updateMeasurementsInput True
+                (\ounces measurements ->
+                    { measurements | ounces = ounces }
+                        |> Math.ouncesToGrains
+                )
+                (\ounces inps -> { inps | ounces = ounces })
+                string
+                model
+                |> withNoCmd
 
         SetEditFeetPerSecond string ->
-            model |> withNoCmd
+            updateMeasurementsInput False
+                (\fps measurements ->
+                    { measurements | feetPerSecond = fps }
+                )
+                (\fps inps -> { inps | fps = fps })
+                string
+                model
+                |> withNoCmd
 
         SetEditInches string ->
-            model |> withNoCmd
+            updateMeasurementsInput False
+                (\inches measurements ->
+                    { measurements | diameterInInches = inches }
+                        |> Math.diameterInInchesToGauge
+                )
+                (\inches inps -> { inps | inches = inches })
+                string
+                model
+                |> withNoCmd
 
         SetEditGauge string ->
-            model |> withNoCmd
+            updateMeasurementsInput False
+                (\gauge measurements ->
+                    { measurements | gauge = gauge }
+                        |> Math.diameterInGaugeToInches
+                )
+                (\gauge inps -> { inps | gauge = gauge })
+                string
+                model
+                |> withNoCmd
 
         DeleteEditSample sample ->
-            model |> withNoCmd
+            let
+                key =
+                    sampleToKey sample
+            in
+            { model | editSamples = Dict.remove key model.editSamples }
+                |> withNoCmd
 
         SetEditVelocity sample string ->
             model |> withNoCmd
@@ -797,39 +822,34 @@ updateInternal msg model =
                 |> withNoCmd
 
         CommitEditDialog ->
-            let
-                inputs2 =
-                    case model.editSample of
-                        Nothing ->
-                            model.inputs
-
-                        Just editSample ->
-                            let
-                                samp2 =
-                                    { editSample | sort = 0 }
-                            in
-                            case
-                                LE.find (sampleMatches True samp2) <|
-                                    Dict.toList model.editSamples
-                            of
-                                Nothing ->
-                                    model.inputs
-
-                                Just ( _, sample ) ->
-                                    measurementsToInputs sample.measurements
-            in
             { model
                 | dialog = NoDialog
                 , samples = model.editSamples
                 , sample = model.editSample
-                , inputs = inputs2
+                , inputs = model.editInputs
             }
                 |> withNoCmd
 
 
-updateSampleMeasurements : (Measurements -> Measurements) -> Sample -> Sample
-updateSampleMeasurements updater sample =
-    { sample | measurements = updater sample.measurements }
+updateMeasurementsInput : Bool -> (Float -> Measurements -> Measurements) -> (String -> Inputs -> Inputs) -> String -> Model -> Model
+updateMeasurementsInput matchDistance updater inputsUpdater string model =
+    case String.toFloat string of
+        Nothing ->
+            model
+
+        Just float ->
+            let
+                mdl =
+                    updateSamples matchDistance
+                        (\sample ->
+                            { sample
+                                | measurements =
+                                    updater float sample.measurements
+                            }
+                        )
+                        model
+            in
+            { mdl | editInputs = inputsUpdater string mdl.editInputs }
 
 
 updateSamples : Bool -> (Sample -> Sample) -> Model -> Model
