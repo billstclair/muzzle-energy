@@ -12,20 +12,16 @@
 
 module Energy.Math exposing
     ( Energy
-    , ImperialMeasurements
     , Measurements
     , computeEnergy
     , constants
     , diameterInGaugeToInches
     , diameterInInchesToGauge
     , emptyEnergy
-    , emptyImperialMeasurements
     , emptyMeasurements
     , encodeMeasurements
     , grainsToOunces
-    , imperialToMeasurements
     , measurementsDecoder
-    , measurementsToImperial
     , ouncesToGrains
     )
 
@@ -36,10 +32,10 @@ import Json.Encode as JE exposing (Value)
 
 type alias Measurements =
     { grains : Float
-    , feetPerSecond : Float
     , diameterInInches : Float
     , ounces : Float
     , gauge : Float
+    , feetPerSecond : Float
     }
 
 
@@ -49,13 +45,11 @@ emptyMeasurements =
 
 
 encodeMeasurements : Measurements -> Value
-encodeMeasurements { grains, feetPerSecond, diameterInInches, ounces, gauge } =
+encodeMeasurements { grains, diameterInInches, ounces, gauge, feetPerSecond } =
     JE.object
         [ ( "grains", JE.float grains )
-        , ( "feetPerSecond", JE.float feetPerSecond )
         , ( "diameterInInches", JE.float diameterInInches )
-        , ( "ounces", JE.float ounces )
-        , ( "gauge", JE.float gauge )
+        , ( "feetPerSecond", JE.float feetPerSecond )
         ]
 
 
@@ -63,22 +57,16 @@ measurementsDecoder : Decoder Measurements
 measurementsDecoder =
     JD.succeed Measurements
         |> required "grains" JD.float
-        |> required "feetPerSecond" JD.float
         |> required "diameterInInches" JD.float
-        |> required "ounces" JD.float
-        |> required "gauge" JD.float
-
-
-type alias ImperialMeasurements =
-    { grams : Float
-    , metersPerSecond : Float
-    , diameterInMm : Float
-    }
-
-
-emptyImperialMeasurements : ImperialMeasurements
-emptyImperialMeasurements =
-    ImperialMeasurements 0 0 0
+        |> hardcoded 0
+        |> hardcoded 0
+        |> required "feetPerSecond" JD.float
+        |> JD.andThen
+            (\m ->
+                grainsToOunces m
+                    |> diameterInInchesToGauge
+                    |> JD.succeed
+            )
 
 
 type alias Energy =
@@ -101,26 +89,6 @@ constants =
     , feetPerMeter = 3.281
     , grainsPerGram = 15.429718
     , cmPerInch = 2.54
-    }
-
-
-imperialToMeasurements : ImperialMeasurements -> Measurements
-imperialToMeasurements im =
-    { grains = constants.grainsPerGram * im.grams
-    , feetPerSecond = constants.feetPerMeter * im.metersPerSecond
-    , diameterInInches = im.diameterInMm / (10 * constants.cmPerInch)
-    , ounces = 0
-    , gauge = 0
-    }
-        |> grainsToOunces
-        |> diameterInInchesToGauge
-
-
-measurementsToImperial : Measurements -> ImperialMeasurements
-measurementsToImperial m =
-    { grams = m.grains / constants.grainsPerGram
-    , metersPerSecond = m.feetPerSecond / constants.feetPerMeter
-    , diameterInMm = m.diameterInInches * constants.cmPerInch * 10
     }
 
 

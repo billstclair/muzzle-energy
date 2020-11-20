@@ -113,6 +113,12 @@ type alias Inputs =
     }
 
 
+type alias CaliberInputs =
+    { sort : String
+    , velocities : List ( Int, String )
+    }
+
+
 measurementsToInputs : Measurements -> Inputs
 measurementsToInputs measurements =
     { grains = digitsFormat zeroDigits measurements.grains
@@ -477,6 +483,7 @@ type alias Model =
     , editSamples : SampleDict
     , editSample : Maybe SampleDisplay
     , editInputs : Inputs
+    , caliberInputs : CaliberInputs
     , newEditWeapon : Weapon
     , newEditName : String
     }
@@ -545,6 +552,7 @@ init value url key =
             , editSamples = Dict.empty
             , editSample = Nothing
             , editInputs = measurementsToInputs emptyMeasurements
+            , caliberInputs = { sort = "0", velocities = [] }
             , newEditWeapon = Rifle
             , newEditName = ""
             }
@@ -693,7 +701,12 @@ updateInternal msg model =
                     { measurements | grains = grains }
                         |> Math.grainsToOunces
                 )
-                (\grains inps -> { inps | grains = grains })
+                (\measurements inps ->
+                    { inps
+                        | ounces =
+                            digitsFormat threeDigits measurements.ounces
+                    }
+                )
                 string
                 model
                 |> withNoCmd
@@ -704,7 +717,12 @@ updateInternal msg model =
                     { measurements | ounces = ounces }
                         |> Math.ouncesToGrains
                 )
-                (\ounces inps -> { inps | ounces = ounces })
+                (\measurements inps ->
+                    { inps
+                        | grains =
+                            digitsFormat zeroDigits measurements.grains
+                    }
+                )
                 string
                 model
                 |> withNoCmd
@@ -714,7 +732,7 @@ updateInternal msg model =
                 (\fps measurements ->
                     { measurements | feetPerSecond = fps }
                 )
-                (\fps inps -> { inps | fps = fps })
+                (\measurements inps -> inps)
                 string
                 model
                 |> withNoCmd
@@ -725,7 +743,12 @@ updateInternal msg model =
                     { measurements | diameterInInches = inches }
                         |> Math.diameterInInchesToGauge
                 )
-                (\inches inps -> { inps | inches = inches })
+                (\measurements inps ->
+                    { inps
+                        | gauge =
+                            digitsFormat threeDigits measurements.gauge
+                    }
+                )
                 string
                 model
                 |> withNoCmd
@@ -736,7 +759,12 @@ updateInternal msg model =
                     { measurements | gauge = gauge }
                         |> Math.diameterInGaugeToInches
                 )
-                (\gauge inps -> { inps | gauge = gauge })
+                (\measurements inps ->
+                    { inps
+                        | inches =
+                            digitsFormat threeDigits measurements.diameterInInches
+                    }
+                )
                 string
                 model
                 |> withNoCmd
@@ -750,13 +778,38 @@ updateInternal msg model =
                 |> withNoCmd
 
         SetEditVelocity sample string ->
-            model |> withNoCmd
+            updateMeasurementsInput True
+                (\fps measurements ->
+                    { measurements | feetPerSecond = fps }
+                )
+                (\measurements inps -> inps)
+                string
+                model
+                |> withNoCmd
 
         SetEditSort sample string ->
-            model |> withNoCmd
+            case String.toFloat string of
+                Nothing ->
+                    model |> withNoCmd
+
+                Just sort ->
+                    updateSamples False
+                        (\samp -> { samp | sort = sort })
+                        (\measurements inps -> inps)
+                        model
+                        |> withNoCmd
 
         SetEditSample sample ->
-            model |> withNoCmd
+            let
+                editSample =
+                    sampleToDisplay sample
+            in
+            { model
+                | editSample = Just editSample
+                , editInputs = measurementsToInputs sample.measurements
+                , caliberInputs = computeCaliberInputs editSample model.editSamples
+            }
+                |> withNoCmd
 
         SetSample sample ->
             let
@@ -809,6 +862,13 @@ updateInternal msg model =
                                 | editSamples = model.samples
                                 , editSample = model.sample
                                 , editInputs = model.inputs
+                                , caliberInputs =
+                                    case model.sample of
+                                        Nothing ->
+                                            model.caliberInputs
+
+                                        Just samp ->
+                                            computeCaliberInputs samp model.samples
                             }
 
                         _ ->
@@ -831,29 +891,61 @@ updateInternal msg model =
                 |> withNoCmd
 
 
-updateMeasurementsInput : Bool -> (Float -> Measurements -> Measurements) -> (String -> Inputs -> Inputs) -> String -> Model -> Model
+computeCaliberInputs : SampleDisplay -> SampleDict -> CaliberInputs
+computeCaliberInputs sample dict =
+    let
+        { name, weapon, unit } =
+            sample
+
+        samples =
+            List.map Tuple.second <| Dict.toList dict
+
+        samps =
+            List.filter
+                (\s ->
+                    (name == s.name)
+                        && (weapon == s.weapon)
+                        && (unit == s.unit)
+                )
+                samples
+    in
+    case samps of
+        [] ->
+            { sort = "0", velocities = [] }
+
+        { sort } :: _ ->
+            { sort = digitsFormat oneDigit sort
+            , velocities =
+                List.map
+                    (\s ->
+                        ( s.distance
+                        , digitsFormat zeroDigits s.measurements.feetPerSecond
+                        )
+                    )
+                    samps
+            }
+
+
+updateMeasurementsInput : Bool -> (Float -> Measurements -> Measurements) -> (Measurements -> Inputs -> Inputs) -> String -> Model -> Model
 updateMeasurementsInput matchDistance updater inputsUpdater string model =
     case String.toFloat string of
         Nothing ->
             model
 
         Just float ->
-            let
-                mdl =
-                    updateSamples matchDistance
-                        (\sample ->
-                            { sample
-                                | measurements =
-                                    updater float sample.measurements
-                            }
-                        )
-                        model
-            in
-            { mdl | editInputs = inputsUpdater string mdl.editInputs }
+            updateSamples matchDistance
+                (\sample ->
+                    { sample
+                        | measurements =
+                            updater float sample.measurements
+                    }
+                )
+                inputsUpdater
+                model
 
 
-updateSamples : Bool -> (Sample -> Sample) -> Model -> Model
-updateSamples matchDistance modfun model =
+updateSamples : Bool -> (Sample -> Sample) -> (Measurements -> Inputs -> Inputs) -> Model -> Model
+updateSamples matchDistance updater inputsUpdater model =
     case model.editSample of
         Nothing ->
             model
@@ -873,7 +965,7 @@ updateSamples matchDistance modfun model =
 
                 newSamples =
                     LE.updateIf (sampleMatches matchDistance dist)
-                        (\( key, sample ) -> ( key, modfun sample ))
+                        (\( key, sample ) -> ( key, updater sample ))
                     <|
                         Dict.toList model.editSamples
 
@@ -886,7 +978,7 @@ updateSamples matchDistance modfun model =
                             model.editInputs
 
                         Just ( _, es ) ->
-                            measurementsToInputs es.measurements
+                            inputsUpdater es.measurements model.editInputs
             in
             { model
                 | editSamples = Dict.fromList newSamples
@@ -1241,32 +1333,36 @@ renderPage model =
 
 renderSampleDisplay : Bool -> Maybe SampleDisplay -> String -> Html Msg
 renderSampleDisplay showDistance sample unknown =
-    case sample of
-        Nothing ->
-            p []
-                [ text unknown ]
+    p
+        [ style "padding-bottom" "0"
+        , style "margin-bottom" "0"
+        ]
+        [ case sample of
+            Nothing ->
+                b unknown
 
-        Just { name, unit, distance } ->
-            p []
-                [ text name
-                , if not showDistance then
-                    text ""
+            Just { name, unit, distance } ->
+                Html.b []
+                    [ text name
+                    , if not showDistance then
+                        text ""
 
-                  else
-                    span []
-                        [ text " at "
-                        , if distance == 0 then
-                            text "muzzle"
+                      else
+                        span []
+                            [ text " at "
+                            , if distance == 0 then
+                                text "muzzle"
 
-                          else
-                            span []
-                                [ text <| String.fromInt distance
-                                , text " "
-                                , text <| unitToString unit
-                                ]
-                        ]
-                , text ":"
-                ]
+                              else
+                                span []
+                                    [ text <| String.fromInt distance
+                                    , text " "
+                                    , text <| unitToString unit
+                                    ]
+                            ]
+                    , text ":"
+                    ]
+        ]
 
 
 type alias Setters =
@@ -1446,7 +1542,10 @@ renderSamples showSort selectedSample wrapper model =
                                           else
                                             text ""
                                         , text name
-                                        , text ", muzzle: "
+                                        , br
+                                        , text <|
+                                            String.repeat 4 special.nbsp
+                                                ++ "muzzle: "
                                         , inp
                                         , text " "
                                         ]
