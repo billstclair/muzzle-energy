@@ -483,6 +483,7 @@ type alias Model =
     , editSamples : SampleDict
     , editSample : Maybe SampleDisplay
     , editInputs : Inputs
+    , editSortInput : String
     , caliberInputs : CaliberInputs
     , newEditWeapon : Weapon
     , newEditName : String
@@ -509,6 +510,7 @@ type Msg
     | SetEditInches String
     | SetEditGauge String
     | DeleteEditSample Sample
+    | DeleteEditDistance Sample
     | SetEditVelocity Sample String
     | SetEditSort Sample String
     | SetEditSample Sample
@@ -552,6 +554,7 @@ init value url key =
             , editSamples = Dict.empty
             , editSample = Nothing
             , editInputs = measurementsToInputs emptyMeasurements
+            , editSortInput = "0"
             , caliberInputs = { sort = "0", velocities = [] }
             , newEditWeapon = Rifle
             , newEditName = ""
@@ -771,6 +774,31 @@ updateInternal msg model =
 
         DeleteEditSample sample ->
             let
+                display =
+                    sampleToDisplay { sample | sort = 0, distance = 0 }
+
+                filter =
+                    \_ v ->
+                        display /= sampleToDisplay { v | sort = 0, distance = 0 }
+            in
+            { model
+                | editSamples = Dict.filter filter model.editSamples
+                , editSample =
+                    case model.editSample of
+                        Nothing ->
+                            Nothing
+
+                        Just editSample ->
+                            if display == { editSample | sort = 0, distance = 0 } then
+                                Nothing
+
+                            else
+                                model.editSample
+            }
+                |> withNoCmd
+
+        DeleteEditDistance sample ->
+            let
                 key =
                     sampleToKey sample
             in
@@ -793,10 +821,22 @@ updateInternal msg model =
                     model |> withNoCmd
 
                 Just sort ->
-                    updateSamples False
-                        (\samp -> { samp | sort = sort })
-                        (\measurements inps -> inps)
-                        model
+                    let
+                        mdl =
+                            updateSamples False
+                                (\samp -> { samp | sort = sort })
+                                (\measurements inps -> inps)
+                                { model | editSortInput = string }
+
+                        editSample =
+                            case model.editSample of
+                                Nothing ->
+                                    Nothing
+
+                                Just es ->
+                                    Just { es | sort = sort }
+                    in
+                    { mdl | editSample = editSample }
                         |> withNoCmd
 
         SetEditSample sample ->
@@ -807,6 +847,7 @@ updateInternal msg model =
             { model
                 | editSample = Just editSample
                 , editInputs = measurementsToInputs sample.measurements
+                , editSortInput = digitsFormat oneDigit sample.sort
                 , caliberInputs = computeCaliberInputs editSample model.editSamples
             }
                 |> withNoCmd
@@ -965,7 +1006,16 @@ updateSamples matchDistance updater inputsUpdater model =
 
                 newSamples =
                     LE.updateIf (sampleMatches matchDistance dist)
-                        (\( key, sample ) -> ( key, updater sample ))
+                        (\( key, sample ) ->
+                            let
+                                newSample =
+                                    updater sample
+
+                                newKey =
+                                    sampleToKey newSample
+                            in
+                            ( newKey, newSample )
+                        )
                     <|
                         Dict.toList model.editSamples
 
@@ -1306,9 +1356,9 @@ renderPage model =
               ]
             ]
     , p []
-        [ text "The top three rows above are active. Change any number and everything dependent on it will be recomputed. Click a button below to fill in values for the linked load."
+        [ text "The top three rows above are active. Change any number and everything dependent on it will be recomputed. Click a button below to fill in values for the linked load. Click the \"Edit\" button below to change the list of loads."
         ]
-    , renderSamples False Nothing SetSample model
+    , renderSamples False Nothing SetSample model.samples model
     , p []
         [ button (SetDialog EditDialog) "Edit" ]
     , p []
@@ -1429,8 +1479,8 @@ br =
     Html.br [] []
 
 
-renderSamples : Bool -> Maybe SampleDisplay -> (Sample -> Msg) -> Model -> Html Msg
-renderSamples showSort selectedSample wrapper model =
+renderSamples : Bool -> Maybe SampleDisplay -> (Sample -> Msg) -> SampleDict -> Model -> Html Msg
+renderSamples showSort selectedSample wrapper sampleDict model =
     let
         selected =
             case selectedSample of
@@ -1515,10 +1565,17 @@ renderSamples showSort selectedSample wrapper model =
                                 ]
                                 [ text "x" ]
 
+                        isSelected =
+                            Just { sampleDisplay | distance = 0 } == selected
+
                         sortStr =
-                            digitsFormat oneDigit sort
+                            if isSelected then
+                                model.editSortInput
+
+                            else
+                                digitsFormat oneDigit sort
                     in
-                    if Just { sampleDisplay | distance = 0 } == selected then
+                    if isSelected then
                         let
                             fps =
                                 digitsFormat zeroDigits measurements.feetPerSecond
@@ -1569,8 +1626,31 @@ renderSamples showSort selectedSample wrapper model =
                                         , inp
                                         , text " "
                                         ]
+
+                            html =
+                                if index < 1 then
+                                    elt
+
+                                else
+                                    let
+                                        tit =
+                                            "Delete "
+                                                ++ String.fromInt sample.distance
+                                                ++ " "
+                                                ++ unitToString sample.unit
+                                                ++ " distance."
+                                    in
+                                    span []
+                                        [ elt
+                                        , Html.button
+                                            [ onClick (DeleteEditDistance sample)
+                                            , title tit
+                                            ]
+                                            [ text "x" ]
+                                        , text " "
+                                        ]
                         in
-                        renderName tail (index + 1) <| elt :: res
+                        renderName tail (index + 1) <| html :: res
 
                     else
                         let
@@ -1617,7 +1697,7 @@ renderSamples showSort selectedSample wrapper model =
                         snarfName name tail <| sample :: res
     in
     div [] <|
-        renderWeapons (dictToSamples model.samples)
+        renderWeapons (dictToSamples sampleDict)
 
 
 dictToSamples : SampleDict -> List Sample
@@ -1681,7 +1761,7 @@ editDialogContent model =
     [ renderSampleDisplay False model.editSample "No caliber selected."
     , table [] <|
         inputRows False editSetters model.editInputs
-    , renderSamples True model.editSample SetEditSample model
+    , renderSamples True model.editSample SetEditSample model.editSamples model
     ]
 
 
