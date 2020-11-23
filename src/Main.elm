@@ -114,8 +114,7 @@ type alias Inputs =
 
 
 type alias CaliberInputs =
-    { sort : String
-    , velocities : List ( Int, String )
+    { velocities : List ( Int, String )
     }
 
 
@@ -288,7 +287,12 @@ sampleDisplayDecoder =
 
 
 sampleToKey : Sample -> SampleKey
-sampleToKey { name, weapon, sort, unit, distance } =
+sampleToKey sample =
+    sampleDisplayToKey <| sampleToDisplay sample
+
+
+sampleDisplayToKey : SampleDisplay -> SampleKey
+sampleDisplayToKey { name, weapon, sort, unit, distance } =
     ( ( weaponToInt weapon, sort, name ), ( unitToString unit, distance ) )
 
 
@@ -495,6 +499,11 @@ type Dialog
     | EditDialog
 
 
+type SortDirection
+    = SortUp
+    | SortDown
+
+
 type Msg
     = Noop
     | OnUrlRequest UrlRequest
@@ -512,7 +521,7 @@ type Msg
     | DeleteEditSample Sample
     | DeleteEditDistance Sample
     | SetEditVelocity Sample String
-    | SetEditSort Sample String
+    | MoveEditSort Sample SortDirection
     | SetEditSample Sample
     | SetSample Sample
     | Process Value
@@ -555,7 +564,7 @@ init value url key =
             , editSample = Nothing
             , editInputs = measurementsToInputs emptyMeasurements
             , editSortInput = "0"
-            , caliberInputs = { sort = "0", velocities = [] }
+            , caliberInputs = { velocities = [] }
             , newEditWeapon = Rifle
             , newEditName = ""
             }
@@ -815,18 +824,59 @@ updateInternal msg model =
                 model
                 |> withNoCmd
 
-        SetEditSort sample string ->
-            case String.toFloat string of
+        MoveEditSort sample direction ->
+            let
+                pred =
+                    case direction of
+                        SortUp ->
+                            (>)
+
+                        SortDown ->
+                            (<)
+
+                sorts =
+                    dictToSamples model.editSamples
+                        |> List.filter (.weapon >> (==) sample.weapon)
+                        |> List.map .sort
+                        |> LE.unique
+                        |> (if direction == SortUp then
+                                List.reverse
+
+                            else
+                                identity
+                           )
+
+                old =
+                    sample.sort
+            in
+            case LE.find (pred old) sorts of
                 Nothing ->
                     model |> withNoCmd
 
-                Just sort ->
+                Just new ->
                     let
                         mdl =
-                            updateSamples False
-                                (\samp -> { samp | sort = sort })
+                            updateEditSamples False
+                                False
+                                (\samp ->
+                                    if samp.weapon /= sample.weapon then
+                                        samp
+
+                                    else
+                                        { samp
+                                            | sort =
+                                                if samp.sort == old then
+                                                    new
+
+                                                else if samp.sort == new then
+                                                    old
+
+                                                else
+                                                    samp.sort
+                                        }
+                                )
                                 (\measurements inps -> inps)
-                                { model | editSortInput = string }
+                                model
 
                         editSample =
                             case model.editSample of
@@ -834,7 +884,7 @@ updateInternal msg model =
                                     Nothing
 
                                 Just es ->
-                                    Just { es | sort = sort }
+                                    Just { es | sort = new }
                     in
                     { mdl | editSample = editSample }
                         |> withNoCmd
@@ -847,7 +897,6 @@ updateInternal msg model =
             { model
                 | editSample = Just editSample
                 , editInputs = measurementsToInputs sample.measurements
-                , editSortInput = digitsFormat oneDigit sample.sort
                 , caliberInputs = computeCaliberInputs editSample model.editSamples
             }
                 |> withNoCmd
@@ -939,7 +988,7 @@ computeCaliberInputs sample dict =
             sample
 
         samples =
-            List.map Tuple.second <| Dict.toList dict
+            dictToSamples dict
 
         samps =
             List.filter
@@ -952,11 +1001,10 @@ computeCaliberInputs sample dict =
     in
     case samps of
         [] ->
-            { sort = "0", velocities = [] }
+            { velocities = [] }
 
         { sort } :: _ ->
-            { sort = digitsFormat oneDigit sort
-            , velocities =
+            { velocities =
                 List.map
                     (\s ->
                         ( s.distance
@@ -974,7 +1022,8 @@ updateMeasurementsInput matchDistance updater inputsUpdater string model =
             model
 
         Just float ->
-            updateSamples matchDistance
+            updateEditSamples matchDistance
+                True
                 (\sample ->
                     { sample
                         | measurements =
@@ -985,8 +1034,8 @@ updateMeasurementsInput matchDistance updater inputsUpdater string model =
                 model
 
 
-updateSamples : Bool -> (Sample -> Sample) -> (Measurements -> Inputs -> Inputs) -> Model -> Model
-updateSamples matchDistance updater inputsUpdater model =
+updateEditSamples : Bool -> Bool -> (Sample -> Sample) -> (Measurements -> Inputs -> Inputs) -> Model -> Model
+updateEditSamples matchDistance matchName updater inputsUpdater model =
     case model.editSample of
         Nothing ->
             model
@@ -1002,10 +1051,16 @@ updateSamples matchDistance updater inputsUpdater model =
 
                             else
                                 -1
+                        , name =
+                            if matchName then
+                                sampleDisplay.name
+
+                            else
+                                ""
                     }
 
                 newSamples =
-                    LE.updateIf (sampleMatches matchDistance dist)
+                    LE.updateIf (sampleMatches matchDistance matchName dist)
                         (\( key, sample ) ->
                             let
                                 newSample =
@@ -1023,7 +1078,7 @@ updateSamples matchDistance updater inputsUpdater model =
                     { sampleDisplay | sort = 0 }
 
                 editInputs =
-                    case LE.find (sampleMatches True exactDist) newSamples of
+                    case LE.find (sampleMatches True True exactDist) newSamples of
                         Nothing ->
                             model.editInputs
 
@@ -1036,8 +1091,8 @@ updateSamples matchDistance updater inputsUpdater model =
             }
 
 
-sampleMatches : Bool -> SampleDisplay -> ( key, Sample ) -> Bool
-sampleMatches matchDistance display ( _, sample ) =
+sampleMatches : Bool -> Bool -> SampleDisplay -> ( key, Sample ) -> Bool
+sampleMatches matchDistance matchName display ( _, sample ) =
     display
         == sampleToDisplay
             { sample
@@ -1048,6 +1103,12 @@ sampleMatches matchDistance display ( _, sample ) =
 
                     else
                         -1
+                , name =
+                    if matchName then
+                        sample.name
+
+                    else
+                        ""
             }
 
 
@@ -1346,7 +1407,7 @@ renderPage model =
             [ inputRows True liveSetters inputs
             , [ tr [ td [ text special.nbsp ] ]
               , tr
-                    [ td [ b "Energy: " ]
+                    [ td [ b "Energy (foot pounds): " ]
                     , td [ numberDisplay zeroDigits energy.footPounds ]
                     ]
               , tr
@@ -1567,13 +1628,6 @@ renderSamples showSort selectedSample wrapper sampleDict model =
 
                         isSelected =
                             Just { sampleDisplay | distance = 0 } == selected
-
-                        sortStr =
-                            if isSelected then
-                                model.editSortInput
-
-                            else
-                                digitsFormat oneDigit sort
                     in
                     if isSelected then
                         let
@@ -1586,19 +1640,24 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                             elt =
                                 if index == 0 then
                                     span []
-                                        [ if showSort then
+                                        [ text name
+                                        , if showSort then
                                             span []
-                                                [ numberInputWithWidth "2em"
-                                                    (SetEditSort sample)
-                                                    sortStr
-                                                , text ": "
-                                                , x
-                                                , text " "
+                                                [ text " "
+                                                , Html.button
+                                                    [ onClick <|
+                                                        MoveEditSort sample SortDown
+                                                    ]
+                                                    [ text "v" ]
+                                                , Html.button
+                                                    [ onClick <|
+                                                        MoveEditSort sample SortUp
+                                                    ]
+                                                    [ text "^" ]
                                                 ]
 
                                           else
                                             text ""
-                                        , text name
                                         , br
                                         , text <|
                                             String.repeat 4 special.nbsp
@@ -1668,19 +1727,8 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                                     text <| String.fromInt distance
 
                             link =
-                                span []
-                                    [ if index == 0 && showSort then
-                                        span []
-                                            [ text <| sortStr ++ ": "
-                                            , x
-                                            , text " "
-                                            ]
-
-                                      else
-                                        text ""
-                                    , Html.button [ onClick <| wrapper sample ]
-                                        [ elt ]
-                                    ]
+                                Html.button [ onClick <| wrapper sample ]
+                                    [ elt ]
                         in
                         renderName tail (index + 1) <| link :: res
 
