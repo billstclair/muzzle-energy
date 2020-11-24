@@ -540,6 +540,7 @@ type Msg
     | SetDialog Dialog
     | DismissDialog
     | CommitEditDialog
+    | RestoreDefaultSamples
 
 
 main =
@@ -1023,6 +1024,13 @@ updateInternal msg model =
             }
                 |> withNoCmd
 
+        RestoreDefaultSamples ->
+            { model
+                | editSamples = initialSampleDict
+                , editSample = Nothing
+            }
+                |> withNoCmd
+
 
 computeCaliberInputs : SampleDisplay -> SampleDict -> CaliberInputs
 computeCaliberInputs sample dict =
@@ -1191,7 +1199,7 @@ storageHandler response state model =
                 (mdl.started == StartedReadingModel)
                     && (model.started == NotStarted)
             then
-                get pk.model
+                Cmd.batch [ get pk.model, get pk.calibers ]
 
             else
                 Cmd.none
@@ -1212,12 +1220,29 @@ storageHandler response state model =
                             Err err ->
                                 let
                                     e =
-                                        Debug.log "err" err
+                                        Debug.log "model decoding error" err
                                 in
                                 mdl2 |> withCmd cmd
 
                             Ok savedModel ->
                                 savedToModel savedModel mdl2 |> withCmd cmd
+
+                    else if key == pk.calibers then
+                        case JD.decodeValue (JD.list caliberDecoder) v of
+                            Err err ->
+                                let
+                                    e =
+                                        Debug.log "calibers decoding error" err
+                                in
+                                mdl2 |> withCmd cmd
+
+                            Ok calibers ->
+                                { model
+                                    | samples =
+                                        ungroupCalibers calibers
+                                            |> samplesToDict
+                                }
+                                    |> withCmd cmd
 
                     else
                         mdl2 |> withCmd cmd
@@ -1291,7 +1316,7 @@ chronographDecoder : Decoder Chronograph
 chronographDecoder =
     JD.succeed Chronograph
         |> required "distance" JD.int
-        |> required "feedPerSecond" JD.float
+        |> required "feetPerSecond" JD.float
 
 
 type alias Caliber =
@@ -1328,6 +1353,45 @@ caliberDecoder =
         |> required "grains" JD.float
         |> required "diameterInInches" JD.float
         |> required "chronographs" (JD.list chronographDecoder)
+
+
+ungroupCalibers : List Caliber -> List Sample
+ungroupCalibers calibers =
+    let
+        ungroup : Caliber -> List Sample
+        ungroup caliber =
+            let
+                sample =
+                    { name = caliber.name
+                    , weapon = caliber.weapon
+                    , sort = caliber.sort
+                    , unit = caliber.unit
+                    , distance = 0
+                    , measurements = emptyMeasurements
+                    }
+
+                measurements =
+                    { emptyMeasurements
+                        | grains = caliber.grains
+                        , diameterInInches = caliber.diameterInInches
+                    }
+                        |> Math.grainsToOunces
+                        |> Math.diameterInInchesToGauge
+
+                chronographToSample chronograph =
+                    { sample
+                        | distance =
+                            chronograph.distance
+                        , measurements =
+                            { measurements
+                                | feetPerSecond =
+                                    chronograph.feetPerSecond
+                            }
+                    }
+            in
+            List.map chronographToSample caliber.chronographs
+    in
+    List.concat <| List.map ungroup calibers
 
 
 {-| Expects samples to be sorted, as they come from SampleDict.
@@ -1389,18 +1453,25 @@ groupSamples samples =
 
 putSamples : SampleDict -> Cmd Msg
 putSamples samples =
-    dictToSamples samples
-        |> groupSamples
-        |> JE.list encodeCaliber
-        |> Just
-        |> put pk.samples
+    let
+        calibers =
+            if samples == initialSampleDict then
+                Nothing
+
+            else
+                dictToSamples samples
+                    |> groupSamples
+                    |> JE.list encodeCaliber
+                    |> Just
+    in
+    put pk.calibers calibers
 
 
 {-| Persistent storage keys
 -}
 pk =
     { model = "model"
-    , samples = "samples"
+    , calibers = "calibers"
     }
 
 
@@ -1810,7 +1881,9 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                             elt =
                                 if index == 0 then
                                     span []
-                                        [ text name
+                                        [ x
+                                        , text " "
+                                        , text name
                                         , if showSort then
                                             span []
                                                 [ text " "
@@ -1899,8 +1972,19 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                             link =
                                 Html.button [ onClick <| wrapper sample ]
                                     [ elt ]
+
+                            html =
+                                if index /= 0 then
+                                    link
+
+                                else
+                                    span []
+                                        [ x
+                                        , text " "
+                                        , link
+                                        ]
                         in
-                        renderName tail (index + 1) <| link :: res
+                        renderName tail (index + 1) <| html :: res
 
         snarfName name samples res =
             case samples of
@@ -1922,6 +2006,12 @@ dictToSamples : SampleDict -> List Sample
 dictToSamples dict =
     Dict.toList dict
         |> List.map Tuple.second
+
+
+samplesToDict : List Sample -> SampleDict
+samplesToDict samples =
+    List.map (\s -> ( sampleToKey s, s )) samples
+        |> Dict.fromList
 
 
 
@@ -1980,6 +2070,8 @@ editDialogContent model =
     , table [] <|
         inputRows False editSetters model.editInputs
     , renderSamples True model.editSample SetEditSample model.editSamples model
+    , Html.button [ onClick RestoreDefaultSamples ]
+        [ text "Restore Defaults" ]
     ]
 
 
