@@ -128,6 +128,7 @@ measurementsToInputs measurements =
     }
 
 
+emptyMeasurements : Measurements
 emptyMeasurements =
     { grains = 180
     , ounces = 0
@@ -137,6 +138,17 @@ emptyMeasurements =
     }
         |> Math.grainsToOunces
         |> Math.diameterInInchesToGauge
+
+
+emptySample : Sample
+emptySample =
+    { name = ""
+    , weapon = Shotgun
+    , sort = -1
+    , unit = Yards
+    , distance = 0
+    , measurements = emptyMeasurements
+    }
 
 
 type Started
@@ -605,6 +617,11 @@ update msg model =
 
               else
                 put pk.model (Just <| encodeSavedModel savedMdl)
+            , if model.samples == mdl.samples then
+                Cmd.none
+
+              else
+                putSamples mdl.samples
             ]
 
 
@@ -714,10 +731,16 @@ updateInternal msg model =
                         |> Math.grainsToOunces
                 )
                 (\measurements inps ->
-                    { inps
-                        | ounces =
-                            digitsFormat threeDigits measurements.ounces
-                    }
+                    case measurements of
+                        Nothing ->
+                            { inps | grains = string }
+
+                        Just m ->
+                            { inps
+                                | grains = string
+                                , ounces =
+                                    digitsFormat threeDigits m.ounces
+                            }
                 )
                 string
                 model
@@ -730,10 +753,16 @@ updateInternal msg model =
                         |> Math.ouncesToGrains
                 )
                 (\measurements inps ->
-                    { inps
-                        | grains =
-                            digitsFormat zeroDigits measurements.grains
-                    }
+                    case measurements of
+                        Nothing ->
+                            { inps | ounces = string }
+
+                        Just m ->
+                            { inps
+                                | ounces = string
+                                , grains =
+                                    digitsFormat zeroDigits m.grains
+                            }
                 )
                 string
                 model
@@ -744,7 +773,9 @@ updateInternal msg model =
                 (\fps measurements ->
                     { measurements | feetPerSecond = fps }
                 )
-                (\measurements inps -> inps)
+                (\measurements inps ->
+                    { inps | fps = string }
+                )
                 string
                 model
                 |> withNoCmd
@@ -756,10 +787,16 @@ updateInternal msg model =
                         |> Math.diameterInInchesToGauge
                 )
                 (\measurements inps ->
-                    { inps
-                        | gauge =
-                            digitsFormat threeDigits measurements.gauge
-                    }
+                    case measurements of
+                        Nothing ->
+                            { inps | inches = string }
+
+                        Just m ->
+                            { inps
+                                | inches = string
+                                , gauge =
+                                    digitsFormat threeDigits m.gauge
+                            }
                 )
                 string
                 model
@@ -772,10 +809,16 @@ updateInternal msg model =
                         |> Math.diameterInGaugeToInches
                 )
                 (\measurements inps ->
-                    { inps
-                        | inches =
-                            digitsFormat threeDigits measurements.diameterInInches
-                    }
+                    case measurements of
+                        Nothing ->
+                            { inps | gauge = string }
+
+                        Just m ->
+                            { inps
+                                | gauge = string
+                                , inches =
+                                    digitsFormat threeDigits m.diameterInInches
+                            }
                 )
                 string
                 model
@@ -1015,11 +1058,14 @@ computeCaliberInputs sample dict =
             }
 
 
-updateMeasurementsInput : Bool -> (Float -> Measurements -> Measurements) -> (Measurements -> Inputs -> Inputs) -> String -> Model -> Model
+updateMeasurementsInput : Bool -> (Float -> Measurements -> Measurements) -> (Maybe Measurements -> Inputs -> Inputs) -> String -> Model -> Model
 updateMeasurementsInput matchDistance updater inputsUpdater string model =
     case String.toFloat string of
         Nothing ->
-            model
+            { model
+                | editInputs =
+                    inputsUpdater Nothing model.inputs
+            }
 
         Just float ->
             updateEditSamples matchDistance
@@ -1034,7 +1080,7 @@ updateMeasurementsInput matchDistance updater inputsUpdater string model =
                 model
 
 
-updateEditSamples : Bool -> Bool -> (Sample -> Sample) -> (Measurements -> Inputs -> Inputs) -> Model -> Model
+updateEditSamples : Bool -> Bool -> (Sample -> Sample) -> (Maybe Measurements -> Inputs -> Inputs) -> Model -> Model
 updateEditSamples matchDistance matchName updater inputsUpdater model =
     case model.editSample of
         Nothing ->
@@ -1083,7 +1129,7 @@ updateEditSamples matchDistance matchName updater inputsUpdater model =
                             model.editInputs
 
                         Just ( _, es ) ->
-                            inputsUpdater es.measurements model.editInputs
+                            inputsUpdater (Just es.measurements) model.editInputs
             in
             { model
                 | editSamples = Dict.fromList newSamples
@@ -1227,10 +1273,134 @@ savedModelDecoder =
         |> optional "sample" (JD.nullable sampleDisplayDecoder) Nothing
 
 
+type alias Chronograph =
+    { distance : Int
+    , feetPerSecond : Float
+    }
+
+
+encodeChronograph : Chronograph -> Value
+encodeChronograph { distance, feetPerSecond } =
+    JE.object
+        [ ( "distance", JE.int distance )
+        , ( "feetPerSecond", JE.float feetPerSecond )
+        ]
+
+
+chronographDecoder : Decoder Chronograph
+chronographDecoder =
+    JD.succeed Chronograph
+        |> required "distance" JD.int
+        |> required "feedPerSecond" JD.float
+
+
+type alias Caliber =
+    { name : String
+    , weapon : Weapon
+    , sort : Float
+    , unit : Unit
+    , grains : Float
+    , diameterInInches : Float
+    , chronographs : List Chronograph
+    }
+
+
+encodeCaliber : Caliber -> Value
+encodeCaliber { name, weapon, sort, unit, grains, diameterInInches, chronographs } =
+    JE.object
+        [ ( "name", JE.string name )
+        , ( "weapon", encodeWeapon weapon )
+        , ( "sort", JE.float sort )
+        , ( "unit", encodeUnit unit )
+        , ( "grains", JE.float grains )
+        , ( "diameterInInches", JE.float diameterInInches )
+        , ( "chronographs", JE.list encodeChronograph chronographs )
+        ]
+
+
+caliberDecoder : Decoder Caliber
+caliberDecoder =
+    JD.succeed Caliber
+        |> required "name" JD.string
+        |> required "weapon" weaponDecoder
+        |> required "sort" JD.float
+        |> required "unit" unitDecoder
+        |> required "grains" JD.float
+        |> required "diameterInInches" JD.float
+        |> required "chronographs" (JD.list chronographDecoder)
+
+
+{-| Expects samples to be sorted, as they come from SampleDict.
+-}
+groupSamples : List Sample -> List Caliber
+groupSamples samples =
+    let
+        loop : List Sample -> Sample -> List Chronograph -> List Caliber -> List Caliber
+        loop samps samp chronographs res =
+            let
+                makeCaliber chrons =
+                    if chrons == [] then
+                        Nothing
+
+                    else
+                        { name = samp.name
+                        , weapon = samp.weapon
+                        , sort = samp.sort
+                        , unit = samp.unit
+                        , grains = samp.measurements.grains
+                        , diameterInInches = samp.measurements.diameterInInches
+                        , chronographs = List.reverse chrons
+                        }
+                            |> Just
+            in
+            case samps of
+                [] ->
+                    case makeCaliber chronographs of
+                        Nothing ->
+                            List.reverse res
+
+                        Just caliber ->
+                            caliber :: List.reverse res
+
+                s :: tail ->
+                    let
+                        chron =
+                            { distance = s.distance
+                            , feetPerSecond = s.measurements.feetPerSecond
+                            }
+                    in
+                    if s.name == samp.name && s.weapon == samp.weapon then
+                        loop tail samp (chron :: chronographs) res
+
+                    else
+                        let
+                            newres =
+                                case makeCaliber chronographs of
+                                    Nothing ->
+                                        res
+
+                                    Just caliber ->
+                                        caliber :: res
+                        in
+                        loop tail s [ chron ] newres
+    in
+    loop samples emptySample [] []
+
+
+putSamples : SampleDict -> Cmd Msg
+putSamples samples =
+    dictToSamples samples
+        |> groupSamples
+        |> JE.list encodeCaliber
+        |> Just
+        |> put pk.samples
+
+
 {-| Persistent storage keys
 -}
 pk =
     { model = "model"
+    , samples = "samples"
     }
 
 
