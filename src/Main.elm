@@ -499,10 +499,9 @@ type alias Model =
     , editSamples : SampleDict
     , editSample : Maybe SampleDisplay
     , editInputs : Inputs
+    , editNewInputs : NewInputs
     , editSortInput : String
     , caliberInputs : CaliberInputs
-    , newEditWeapon : Weapon
-    , newEditName : String
     }
 
 
@@ -534,8 +533,17 @@ type Msg
     | DeleteEditDistance Sample
     | SetEditVelocity Sample String
     | MoveEditSort Sample SortDirection
+    | SetEditNewDistance Sample String
+    | AddEditDistance Sample
     | SetEditSample Sample
     | SetSample Sample
+    | SetEditNewName String
+    | SetEditNewWeapon String
+    | SetEditNewUnit String
+    | SetEditNewGrains String
+    | SetEditNewInches String
+    | SetEditNewMuzzleFps String
+    | NewEditCaliber
     | Process Value
     | SetDialog Dialog
     | DismissDialog
@@ -576,10 +584,9 @@ init value url key =
             , editSamples = Dict.empty
             , editSample = Nothing
             , editInputs = measurementsToInputs emptyMeasurements
+            , editNewInputs = initialNewInputs
             , editSortInput = "0"
             , caliberInputs = { velocities = [] }
-            , newEditWeapon = Rifle
-            , newEditName = ""
             }
 
         ( mdl, _ ) =
@@ -933,6 +940,24 @@ updateInternal msg model =
                     { mdl | editSample = editSample }
                         |> withNoCmd
 
+        SetEditNewDistance sample string ->
+            -- TODO
+            let
+                editNewInputs =
+                    model.editNewInputs
+            in
+            { model
+                | editNewInputs =
+                    { editNewInputs
+                        | newDistance = string
+                    }
+            }
+                |> withNoCmd
+
+        AddEditDistance sample ->
+            -- TODO
+            model |> withNoCmd
+
         SetEditSample sample ->
             let
                 editSample =
@@ -957,6 +982,34 @@ updateInternal msg model =
                 , sample = Just <| sampleToDisplay sample
             }
                 |> withNoCmd
+
+        SetEditNewName string ->
+            setEditNewInputs (\ni -> { ni | name = string }) model
+                |> withNoCmd
+
+        SetEditNewWeapon string ->
+            setEditNewInputs (\ni -> { ni | weapon = stringToWeapon string }) model
+                |> withNoCmd
+
+        SetEditNewUnit string ->
+            setEditNewInputs (\ni -> { ni | unit = stringToUnit string }) model
+                |> withNoCmd
+
+        SetEditNewGrains string ->
+            setEditNewInputs (\ni -> { ni | grains = string }) model
+                |> withNoCmd
+
+        SetEditNewInches string ->
+            setEditNewInputs (\ni -> { ni | inches = string }) model
+                |> withNoCmd
+
+        SetEditNewMuzzleFps string ->
+            setEditNewInputs (\ni -> { ni | muzzleFps = string }) model
+                |> withNoCmd
+
+        NewEditCaliber ->
+            -- TODO
+            model |> withNoCmd
 
         Process value ->
             case
@@ -1030,6 +1083,18 @@ updateInternal msg model =
                 , editSample = Nothing
             }
                 |> withNoCmd
+
+
+setEditNewInputs : (NewInputs -> NewInputs) -> Model -> Model
+setEditNewInputs setter model =
+    let
+        editNewInputs =
+            model.editNewInputs
+    in
+    { model
+        | editNewInputs =
+            setter editNewInputs
+    }
 
 
 computeCaliberInputs : SampleDisplay -> SampleDict -> CaliberInputs
@@ -1861,11 +1926,15 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                             sampleToDisplay sample
 
                         x =
-                            Html.button
-                                [ onClick <| DeleteEditSample sample
-                                , title "Delete this load."
-                                ]
-                                [ text "x" ]
+                            if not showSort then
+                                text ""
+
+                            else
+                                Html.button
+                                    [ onClick <| DeleteEditSample sample
+                                    , title "Delete this load."
+                                    ]
+                                    [ text "x" ]
 
                         isSelected =
                             Just { sampleDisplay | distance = 0 } == selected
@@ -1897,6 +1966,22 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                                                         MoveEditSort sample SortUp
                                                     ]
                                                     [ text "^" ]
+                                                , text " "
+                                                , b <| unitToString sample.unit
+                                                , text ": "
+                                                , numberInput
+                                                    (SetEditNewDistance sample)
+                                                    model.editNewInputs.newDistance
+                                                , text " "
+                                                , Html.button
+                                                    [ onClick <|
+                                                        AddEditDistance sample
+                                                    , disabled <|
+                                                        Nothing
+                                                            == String.toInt
+                                                                model.editNewInputs.newDistance
+                                                    ]
+                                                    [ text "+" ]
                                                 ]
 
                                           else
@@ -2064,15 +2149,154 @@ editDialog model =
         True
 
 
+type alias NewInputs =
+    { name : String
+    , weapon : Weapon
+    , unit : Unit
+    , grains : String
+    , inches : String
+    , muzzleFps : String
+    , newDistance : String
+    }
+
+
+initialNewInputs : NewInputs
+initialNewInputs =
+    { name = ""
+    , weapon = Rifle
+    , unit = Yards
+    , grains = "150"
+    , inches = "0.308"
+    , muzzleFps = "2820"
+    , newDistance = ""
+    }
+
+
 editDialogContent : Model -> List (Html Msg)
 editDialogContent model =
+    let
+        editNewInputs =
+            model.editNewInputs
+    in
     [ renderSampleDisplay False model.editSample "No caliber selected."
     , table [] <|
         inputRows False editSetters model.editInputs
+    , table []
+        [ tr
+            [ Html.td [ colspan 4 ]
+                [ b "Name: "
+                , numberInputWithWidth "20em" SetEditNewName editNewInputs.name
+                ]
+            ]
+        , tr
+            [ td [ b "Weapon: " ]
+            , td [ editWeaponSelector editNewInputs.weapon ]
+            , td [ b " Unit: " ]
+            , td [ editUnitSelector editNewInputs.unit ]
+            ]
+        , tr
+            [ td [ b "Grains: " ]
+            , td [ numberInput SetEditNewGrains editNewInputs.grains ]
+            , td [ b "Inches: " ]
+            , td [ numberInput SetEditNewInches editNewInputs.inches ]
+            ]
+        , tr
+            [ td [ b "Muzzle FPS: " ]
+            , td [ numberInput SetEditNewMuzzleFps editNewInputs.muzzleFps ]
+            , td
+                [ Html.button
+                    [ onClick NewEditCaliber
+                    , disabled (not <| newEditCaliberOk model)
+                    ]
+                    [ text "New Load" ]
+                ]
+            ]
+        ]
     , renderSamples True model.editSample SetEditSample model.editSamples model
     , Html.button [ onClick RestoreDefaultSamples ]
         [ text "Restore Defaults" ]
     ]
+
+
+newEditCaliberOk : Model -> Bool
+newEditCaliberOk model =
+    let
+        editNewInputs =
+            model.editNewInputs
+
+        name =
+            editNewInputs.name
+
+        weapon =
+            editNewInputs.weapon
+
+        unit =
+            editNewInputs.unit
+
+        grains =
+            editNewInputs.grains
+
+        inches =
+            editNewInputs.inches
+
+        muzzleFps =
+            editNewInputs.muzzleFps
+
+        display =
+            SampleDisplay name weapon 0 unit 0
+
+        editSamples =
+            dictToSamples model.editSamples
+
+        pred sample =
+            let
+                disp =
+                    sampleToDisplay sample
+            in
+            display == { disp | sort = 0, distance = 0 }
+    in
+    ("" /= name)
+        && (Nothing /= String.toFloat grains)
+        && (Nothing /= String.toFloat inches)
+        && (Nothing /= String.toFloat muzzleFps)
+        && (Nothing == LE.find pred editSamples)
+
+
+editWeaponSelector : Weapon -> Html Msg
+editWeaponSelector weapon =
+    select [ onInput SetEditNewWeapon ]
+        [ option
+            [ value "Rifle"
+            , selected <| Rifle == weapon
+            ]
+            [ text "Rifle" ]
+        , option
+            [ value "Handgun"
+            , selected <| Handgun == weapon
+            ]
+            [ text "Handgun" ]
+        , option
+            [ value "Shotgun"
+            , selected <| Shotgun == weapon
+            ]
+            [ text "Shotgun" ]
+        ]
+
+
+editUnitSelector : Unit -> Html Msg
+editUnitSelector unit =
+    select [ onInput SetEditNewUnit ]
+        [ option
+            [ value "Feet"
+            , selected <| Feet == unit
+            ]
+            [ text "Feet" ]
+        , option
+            [ value "Yards"
+            , selected <| Yards == unit
+            ]
+            [ text "Yards" ]
+        ]
 
 
 
