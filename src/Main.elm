@@ -1008,8 +1008,8 @@ updateInternal msg model =
                 |> withNoCmd
 
         NewEditCaliber ->
-            -- TODO
-            model |> withNoCmd
+            newEditCaliber model
+                |> withNoCmd
 
         Process value ->
             case
@@ -1083,6 +1083,79 @@ updateInternal msg model =
                 , editSample = Nothing
             }
                 |> withNoCmd
+
+
+newEditCaliber : Model -> Model
+newEditCaliber model =
+    let
+        inputs =
+            model.editNewInputs
+
+        editSamples =
+            model.editSamples
+
+        { name, weapon, unit, grains, inches, muzzleFps } =
+            inputs
+
+        grainsInchesM =
+            case String.toFloat grains of
+                Nothing ->
+                    Nothing
+
+                Just g ->
+                    case String.toFloat inches of
+                        Nothing ->
+                            Nothing
+
+                        Just i ->
+                            case String.toFloat muzzleFps of
+                                Nothing ->
+                                    Nothing
+
+                                Just m ->
+                                    Just ( g, i, m )
+    in
+    case grainsInchesM of
+        Nothing ->
+            model
+
+        Just ( grainsF, inchesF, muzzleFpsF ) ->
+            let
+                sample =
+                    { name = name
+                    , weapon = weapon
+                    , sort =
+                        Dict.values editSamples
+                            |> List.map .sort
+                            |> List.foldl max 0
+                            |> (+) 1
+                    , unit = unit
+                    , distance = 0
+                    , measurements =
+                        { emptyMeasurements
+                            | grains = grainsF
+                            , feetPerSecond = muzzleFpsF
+                            , diameterInInches = inchesF
+                        }
+                            |> Math.grainsToOunces
+                            |> Math.diameterInInchesToGauge
+                    }
+
+                key =
+                    sampleToKey sample
+
+                newEditSamples =
+                    case Dict.get key editSamples of
+                        Nothing ->
+                            Dict.insert key sample editSamples
+
+                        _ ->
+                            editSamples
+            in
+            { model
+                | editSamples = newEditSamples
+                , editNewInputs = { inputs | name = "" }
+            }
 
 
 setEditNewInputs : (NewInputs -> NewInputs) -> Model -> Model
@@ -1959,11 +2032,13 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                                                 , Html.button
                                                     [ onClick <|
                                                         MoveEditSort sample SortDown
+                                                    , title "Move this load down in the list for its weapon."
                                                     ]
                                                     [ text "v" ]
                                                 , Html.button
                                                     [ onClick <|
                                                         MoveEditSort sample SortUp
+                                                    , title "Move this load up in the list for its weapon."
                                                     ]
                                                     [ text "^" ]
                                                 , text " "
@@ -1976,6 +2051,7 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                                                 , Html.button
                                                     [ onClick <|
                                                         AddEditDistance sample
+                                                    , title "Add the distance to the list for this load."
                                                     , disabled <|
                                                         Nothing
                                                             == String.toInt
@@ -2207,6 +2283,7 @@ editDialogContent model =
                 [ Html.button
                     [ onClick NewEditCaliber
                     , disabled (not <| newEditCaliberOk model)
+                    , title "Use Name, Weapon, Unit, Grains, Inches, Muzzle FPS to create a new load."
                     ]
                     [ text "New Load" ]
                 ]
