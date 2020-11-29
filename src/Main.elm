@@ -114,8 +114,7 @@ type alias Inputs =
 
 
 type alias CaliberInputs =
-    { velocities : List ( Int, String )
-    }
+    Dict Int String
 
 
 measurementsToInputs : Measurements -> Inputs
@@ -586,7 +585,7 @@ init value url key =
             , editInputs = measurementsToInputs emptyMeasurements
             , editNewInputs = initialNewInputs
             , editSortInput = "0"
-            , caliberInputs = { velocities = [] }
+            , caliberInputs = Dict.empty
             }
 
         ( mdl, _ ) =
@@ -866,13 +865,22 @@ updateInternal msg model =
                 |> withNoCmd
 
         SetEditVelocity sample string ->
-            updateMeasurementsInput True
-                (\fps measurements ->
-                    { measurements | feetPerSecond = fps }
-                )
-                (\measurements inps -> inps)
-                string
-                model
+            let
+                mdl =
+                    updateMeasurementsInput True
+                        (\fps measurements ->
+                            { measurements | feetPerSecond = fps }
+                        )
+                        (\measurements inps ->
+                            inps
+                        )
+                        string
+                        { model | editSample = Just <| sampleToDisplay sample }
+            in
+            { mdl
+                | caliberInputs =
+                    Dict.insert sample.distance string model.caliberInputs
+            }
                 |> withNoCmd
 
         MoveEditSort sample direction ->
@@ -955,8 +963,8 @@ updateInternal msg model =
                 |> withNoCmd
 
         AddEditDistance sample ->
-            -- TODO
-            model |> withNoCmd
+            addEditDistance model
+                |> withNoCmd
 
         SetEditSample sample ->
             let
@@ -1085,6 +1093,56 @@ updateInternal msg model =
                 |> withNoCmd
 
 
+addEditDistance : Model -> Model
+addEditDistance model =
+    let
+        editNewInputs =
+            model.editNewInputs
+    in
+    case model.editSample of
+        Nothing ->
+            model
+
+        Just editSample ->
+            let
+                { name, weapon, sort, unit } =
+                    editSample
+            in
+            case String.toInt editNewInputs.newDistance of
+                Nothing ->
+                    model
+
+                Just distance ->
+                    let
+                        key =
+                            sampleDisplayToKey { editSample | distance = 0 }
+                    in
+                    case Dict.get key model.editSamples of
+                        Nothing ->
+                            model
+
+                        Just { measurements } ->
+                            let
+                                sample =
+                                    { name = name
+                                    , weapon = weapon
+                                    , sort = sort
+                                    , unit = unit
+                                    , distance = distance
+                                    , measurements =
+                                        { measurements | feetPerSecond = 0 }
+                                    }
+                            in
+                            { model
+                                | editNewInputs =
+                                    { editNewInputs | newDistance = "" }
+                                , editSamples =
+                                    Dict.insert (sampleToKey sample)
+                                        sample
+                                        model.editSamples
+                            }
+
+
 newEditCaliber : Model -> Model
 newEditCaliber model =
     let
@@ -1188,20 +1246,14 @@ computeCaliberInputs sample dict =
                 )
                 samples
     in
-    case samps of
-        [] ->
-            { velocities = [] }
-
-        { sort } :: _ ->
-            { velocities =
-                List.map
-                    (\s ->
-                        ( s.distance
-                        , digitsFormat zeroDigits s.measurements.feetPerSecond
-                        )
-                    )
-                    samps
-            }
+    List.map
+        (\s ->
+            ( s.distance
+            , digitsFormat zeroDigits s.measurements.feetPerSecond
+            )
+        )
+        samps
+        |> Dict.fromList
 
 
 updateMeasurementsInput : Bool -> (Float -> Measurements -> Measurements) -> (Maybe Measurements -> Inputs -> Inputs) -> String -> Model -> Model
@@ -2015,7 +2067,12 @@ renderSamples showSort selectedSample wrapper sampleDict model =
                     if isSelected then
                         let
                             fps =
-                                digitsFormat zeroDigits measurements.feetPerSecond
+                                case Dict.get sample.distance model.caliberInputs of
+                                    Nothing ->
+                                        ""
+
+                                    Just s ->
+                                        s
 
                             inp =
                                 numberInput (SetEditVelocity sample) fps
