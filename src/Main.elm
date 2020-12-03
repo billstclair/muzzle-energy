@@ -536,11 +536,14 @@ type Msg
     | AddEditDistance Sample
     | SetEditSample Sample
     | SetSample Sample
+    | SetEditNewShow Bool
     | SetEditNewName String
     | SetEditNewWeapon String
     | SetEditNewUnit String
     | SetEditNewGrains String
+    | SetEditNewOunces String
     | SetEditNewInches String
+    | SetEditNewGauge String
     | SetEditNewMuzzleFps String
     | NewEditCaliber
     | Process Value
@@ -991,6 +994,10 @@ updateInternal msg model =
             }
                 |> withNoCmd
 
+        SetEditNewShow show ->
+            setEditNewInputs (\ni -> { ni | show = show }) model
+                |> withNoCmd
+
         SetEditNewName string ->
             setEditNewInputs (\ni -> { ni | name = string }) model
                 |> withNoCmd
@@ -1004,12 +1011,112 @@ updateInternal msg model =
                 |> withNoCmd
 
         SetEditNewGrains string ->
-            setEditNewInputs (\ni -> { ni | grains = string }) model
-                |> withNoCmd
+            let
+                mdl =
+                    case String.toFloat string of
+                        Nothing ->
+                            setEditNewInputs (\ni -> { ni | grains = string }) model
+
+                        Just grains ->
+                            let
+                                measurements =
+                                    { emptyMeasurements | grains = grains }
+                                        |> Math.grainsToOunces
+
+                                ounces =
+                                    digitsFormat threeDigits measurements.ounces
+                            in
+                            setEditNewInputs
+                                (\ni ->
+                                    { ni
+                                        | grains = string
+                                        , ounces = ounces
+                                    }
+                                )
+                                model
+            in
+            mdl |> withNoCmd
+
+        SetEditNewOunces string ->
+            let
+                mdl =
+                    case String.toFloat string of
+                        Nothing ->
+                            setEditNewInputs (\ni -> { ni | ounces = string }) model
+
+                        Just ounces ->
+                            let
+                                measurements =
+                                    { emptyMeasurements | ounces = ounces }
+                                        |> Math.ouncesToGrains
+
+                                grains =
+                                    digitsFormat zeroDigits measurements.grains
+                            in
+                            setEditNewInputs
+                                (\ni ->
+                                    { ni
+                                        | grains = grains
+                                        , ounces = string
+                                    }
+                                )
+                                model
+            in
+            mdl |> withNoCmd
 
         SetEditNewInches string ->
-            setEditNewInputs (\ni -> { ni | inches = string }) model
-                |> withNoCmd
+            let
+                mdl =
+                    case String.toFloat string of
+                        Nothing ->
+                            setEditNewInputs (\ni -> { ni | inches = string }) model
+
+                        Just inches ->
+                            let
+                                measurements =
+                                    { emptyMeasurements | diameterInInches = inches }
+                                        |> Math.diameterInInchesToGauge
+
+                                gauge =
+                                    digitsFormat threeDigits measurements.gauge
+                            in
+                            setEditNewInputs
+                                (\ni ->
+                                    { ni
+                                        | inches = string
+                                        , gauge = gauge
+                                    }
+                                )
+                                model
+            in
+            mdl |> withNoCmd
+
+        SetEditNewGauge string ->
+            let
+                mdl =
+                    case String.toFloat string of
+                        Nothing ->
+                            setEditNewInputs (\ni -> { ni | gauge = string }) model
+
+                        Just gauge ->
+                            let
+                                measurements =
+                                    { emptyMeasurements | gauge = gauge }
+                                        |> Math.diameterInGaugeToInches
+
+                                inches =
+                                    digitsFormat threeDigits measurements.diameterInInches
+                            in
+                            setEditNewInputs
+                                (\ni ->
+                                    { ni
+                                        | inches = inches
+                                        , gauge = string
+                                    }
+                                )
+                                model
+            in
+            mdl |> withNoCmd
 
         SetEditNewMuzzleFps string ->
             setEditNewInputs (\ni -> { ni | muzzleFps = string }) model
@@ -2283,11 +2390,14 @@ editDialog model =
 
 
 type alias NewInputs =
-    { name : String
+    { show : Bool
+    , name : String
     , weapon : Weapon
     , unit : Unit
     , grains : String
+    , ounces : String
     , inches : String
+    , gauge : String
     , muzzleFps : String
     , newDistance : String
     }
@@ -2295,11 +2405,14 @@ type alias NewInputs =
 
 initialNewInputs : NewInputs
 initialNewInputs =
-    { name = ""
+    { show = False
+    , name = ""
     , weapon = Rifle
     , unit = Yards
     , grains = "150"
+    , ounces = "0.343"
     , inches = "0.308"
+    , gauge = "159.087"
     , muzzleFps = "2820"
     , newDistance = ""
     }
@@ -2314,38 +2427,55 @@ editDialogContent model =
     [ renderSampleDisplay False model.editSample "No caliber selected."
     , table [] <|
         inputRows False editSetters model.editInputs
-    , table []
-        [ tr
-            [ Html.td [ colspan 4 ]
-                [ b "Name: "
-                , numberInputWithWidth "20em" SetEditNewName editNewInputs.name
-                ]
-            ]
-        , tr
-            [ td [ b "Weapon: " ]
-            , td [ editWeaponSelector editNewInputs.weapon ]
-            , td [ b " Unit: " ]
-            , td [ editUnitSelector editNewInputs.unit ]
-            ]
-        , tr
-            [ td [ b "Grains: " ]
-            , td [ numberInput SetEditNewGrains editNewInputs.grains ]
-            , td [ b "Inches: " ]
-            , td [ numberInput SetEditNewInches editNewInputs.inches ]
-            ]
-        , tr
-            [ td [ b "Muzzle FPS: " ]
-            , td [ numberInput SetEditNewMuzzleFps editNewInputs.muzzleFps ]
-            , td
-                [ Html.button
-                    [ onClick NewEditCaliber
-                    , disabled (not <| newEditCaliberOk model)
-                    , title "Use Name, Weapon, Unit, Grains, Inches, Muzzle FPS to create a new load."
+    , if editNewInputs.show then
+        Html.button [ onClick <| SetEditNewShow False ]
+            [ text "Hide New Load UI" ]
+
+      else
+        Html.button [ onClick <| SetEditNewShow True ]
+            [ text "Show New Load UI" ]
+    , if not editNewInputs.show then
+        text ""
+
+      else
+        table []
+            [ tr
+                [ Html.td [ colspan 4 ]
+                    [ b "Name: "
+                    , numberInputWithWidth "20em" SetEditNewName editNewInputs.name
                     ]
-                    [ text "New Load" ]
+                ]
+            , tr
+                [ td [ b "Weapon: " ]
+                , td [ editWeaponSelector editNewInputs.weapon ]
+                , td [ b " Unit: " ]
+                , td [ editUnitSelector editNewInputs.unit ]
+                ]
+            , tr
+                [ td [ b "Grains: " ]
+                , td [ numberInput SetEditNewGrains editNewInputs.grains ]
+                , td [ b "ounces: " ]
+                , td [ numberInput SetEditNewOunces editNewInputs.ounces ]
+                ]
+            , tr
+                [ td [ b "Inches: " ]
+                , td [ numberInput SetEditNewInches editNewInputs.inches ]
+                , td [ b "gauge: " ]
+                , td [ numberInput SetEditNewGauge editNewInputs.gauge ]
+                ]
+            , tr
+                [ td [ b "Muzzle FPS: " ]
+                , td [ numberInput SetEditNewMuzzleFps editNewInputs.muzzleFps ]
+                , td
+                    [ Html.button
+                        [ onClick NewEditCaliber
+                        , disabled (not <| newEditCaliberOk model)
+                        , title "Use Name, Weapon, Unit, Grains, Inches, Muzzle FPS to create a new load."
+                        ]
+                        [ text "New Load" ]
+                    ]
                 ]
             ]
-        ]
     , renderSamples True model.editSample SetEditSample model.editSamples model
     , Html.button [ onClick RestoreDefaultSamples ]
         [ text "Restore Defaults" ]
