@@ -1,7 +1,7 @@
 {
-  "short_name": "Energy",
+  "short_name": "Muzzle Energy",
   "name": "Muzzle Energy",
-  "description": "A muzzle energy computer."
+  "description": "A muzzle energy computer.",
   "icons": [
     {
       "src": "/images/icon-192.png",
