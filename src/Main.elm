@@ -2,7 +2,7 @@
 --
 -- Main.elm
 -- muzzle-energy.com - A muzzle energy computer
--- Copyright (c) 2020 Bill St. Clair <billstclair@gmail.com>
+-- Copyright (c) 2020-2025 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
 -- See LICENSE
@@ -1968,7 +1968,11 @@ renderPage model =
         , text ". It is defined as energy in foot pounds multiplied by projectile cross-sectional area in square inches. Neil says that this is a pretty good indicator of the relative efficacy against live targets of different projectiles and loads. In an email about this page, Neil wrote, \"I'm not absolutely certain of its applicability to rifles (although it looks pretty good and is fine for slugs and rifles like .45/70). There are other factors at work above 2000-2500 feet per second. But every year that passes convinces me more that this is the perfect program for predicting handgun performance.\""
         ]
     , p []
-        [ a [ href "https://elm-lang.org" ]
+        [ text "Copyright "
+        , text special.copyright
+        , text "2019-2025, Bill St. Clair"
+        , br
+        , a [ href "https://elm-lang.org" ]
             [ text "Elm" ]
         , text " "
         , a [ href "https://github.com/billstclair/muzzle-energy/" ]
